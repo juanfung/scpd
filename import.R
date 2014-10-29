@@ -57,7 +57,10 @@ path.hist.layout <- paste0(path.to.data,"/Dataquick/history_layout.csv")
 # 1a. Import assessment data #
 
 # Import column names, classes, and lengths
-assr.layout <- read.csv(file=path.assr.layout,header=TRUE,sep=",",fill=TRUE,allowEscapes=TRUE,strip.white=TRUE,stringsAsFactors=FALSE)
+assr.layout <- read.table(file=path.assr.layout,header=TRUE,sep=",",fill=TRUE,allowEscapes=TRUE,strip.white=TRUE,stringsAsFactors=FALSE,blank.lines.skip=TRUE,skipNul=TRUE)
+
+# drop any "false" fields, i.e., Field.Number==NA (e.g., "Totals")
+assr.layout <- assr.layout[!is.na(assr.layout[,"Field.Number"]),]
 
 # save as new csv, after trimming white space, etc.
 write.table(assr.layout,file=paste0(path.to.data,"/assr_layout.csv"))
@@ -99,7 +102,11 @@ save(assr.laf.fwf.il,file=paste0(path.to.data,"/ILassr.Rda"))
 # 1b. Import transaction data, same as above
 
 # Import column names, classes, and lengths; same as before
-hist.layout <- read.csv(file=path.hist.layout,header=TRUE,sep=",",fill=TRUE,allowEscapes=TRUE,strip.white=TRUE,stringsAsFactors=FALSE)
+hist.layout <- read.csv(file=path.hist.layout,header=TRUE,sep=",",fill=TRUE,allowEscapes=TRUE,strip.white=TRUE,stringsAsFactors=FALSE,blank.lines.skip=TRUE,skipNul=TRUE)
+
+# drop any "false" fields, i.e., Field.Number==NA (e.g., "Totals")
+hist.layout <- hist.layout[!is.na(hist.layout[,"Field.Number"]),]
+
 write.table(hist.layout,file=paste0(path.to.data,"/hist_layout.csv"))
 
 hist.names <- c(hist.layout[,2])
