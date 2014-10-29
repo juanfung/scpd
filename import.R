@@ -102,7 +102,7 @@ save(assr.laf.fwf.il,file=paste0(path.to.data,"/ILassr.Rda"))
 # 1b. Import transaction data, same as above
 
 # Import column names, classes, and lengths; same as before
-hist.layout <- read.csv(file=path.hist.layout,header=TRUE,sep=",",fill=TRUE,allowEscapes=TRUE,strip.white=TRUE,stringsAsFactors=FALSE,blank.lines.skip=TRUE,skipNul=TRUE)
+hist.layout <- read.table(file=path.hist.layout,header=TRUE,sep=",",fill=TRUE,allowEscapes=TRUE,strip.white=TRUE,stringsAsFactors=FALSE,blank.lines.skip=TRUE,skipNul=TRUE)
 
 # drop any "false" fields, i.e., Field.Number==NA (e.g., "Totals")
 hist.layout <- hist.layout[!is.na(hist.layout[,"Field.Number"]),]
