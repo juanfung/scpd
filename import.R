@@ -57,23 +57,22 @@ path.hist.layout <- paste0(path.to.data,"/Dataquick/history_layout.csv")
 # 1a. Import assessment data #
 
 # Import column names, classes, and lengths
-assr.layout <- read.table(file=path.assr.layout,header=TRUE,sep=",",fill=TRUE,allowEscapes=TRUE,strip.white=TRUE,stringsAsFactors=FALSE,blank.lines.skip=TRUE,skipNul=TRUE)
+assr.layout <- read.table(file=path.assr.layout,header=TRUE,sep=",",fill=TRUE,allowEscapes=TRUE,strip.white=TRUE,stringsAsFactors=FALSE,blank.lines.skip=TRUE,skipNul=TRUE,quote="\"")
 
 # drop any "false" fields, i.e., Field.Number==NA (e.g., "Totals")
 assr.layout <- assr.layout[!is.na(assr.layout[,"Field.Number"]),]
 
-# save as new csv, after trimming white space, etc.
+# Optional: save as new csv, after trimming white space, etc.
 write.table(assr.layout,file=paste0(path.to.data,"/assr_layout.csv"))
 
 assr.names <- c(assr.layout$Field.Name)
 assr.lengths <- c(assr.layout$Length)
 assr.class <- c(assr.layout$ANSI.Standard.Data.Type)
+
 # Modify class for LaF format as specified above:
- assr.class <- gsub("No Equivalent","string",assr.class)
- assr.class <- gsub("timestamp","string",assr.class)
- assr.class <- gsub("character varying","string",assr.class)
  assr.class <- gsub("numeric","double",assr.class)
  assr.class <- gsub("smallint","integer",assr.class)
+ assr.class <- gsub("^((?!numeric|integer).)*$","string",assr.class,perl=T)
 
 # Create LaF object (link to data)
 assr.laf.fwf <- laf_open_fwf(filename=path.assr,column_types=assr.class,column_names=assr.names,column_widths=assr.lengths,trim=TRUE)
@@ -102,20 +101,21 @@ save(assr.laf.fwf.il,file=paste0(path.to.data,"/ILassr.Rda"))
 # 1b. Import transaction data, same as above
 
 # Import column names, classes, and lengths; same as before
-hist.layout <- read.table(file=path.hist.layout,header=TRUE,sep=",",fill=TRUE,allowEscapes=TRUE,strip.white=TRUE,stringsAsFactors=FALSE,blank.lines.skip=TRUE,skipNul=TRUE)
+hist.layout <- read.table(file=path.hist.layout,header=TRUE,sep=",",fill=TRUE,allowEscapes=TRUE,strip.white=TRUE,stringsAsFactors=FALSE,blank.lines.skip=TRUE,skipNul=TRUE,quote="\"")
 
 # drop any "false" fields, i.e., Field.Number==NA (e.g., "Totals")
 hist.layout <- hist.layout[!is.na(hist.layout[,"Field.Number"]),]
 
+# Optional: save as new csv, after trimming white space, etc.
 write.table(hist.layout,file=paste0(path.to.data,"/hist_layout.csv"))
 
-hist.names <- c(hist.layout[,2])
-hist.lengths <- c(hist.layout[,7])
-hist.class <- c(hist.layout[,3])
+hist.names <- c(hist.layout$Field.Name)
+hist.lengths <- c(hist.layout$Length)
+hist.class <- c(hist.layout$ANSI.Standard.Data.Type)
 # modify classes to match LaF format as specified above:
- hist.class <- gsub("character varying","string",hist.class)
  hist.class <- gsub("numeric","double",hist.class)
  hist.class <- gsub("smallint","integer",hist.class)
+ hist.class <- gsub("^((?!numeric|integer).)*$","string",hist.class,perl=T)
 
 # Create LaF link 
 hist.laf.fwf <- laf_open_fwf(filename=path.hist,column_types=class.hist.laf,column_names=hist.names,column_widths=hist.lengths,trim=TRUE)
