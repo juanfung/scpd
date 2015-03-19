@@ -58,9 +58,37 @@ shiftPoint <- function(pts,shift,lon=TRUE) {
     return(pts)
 }
 
-# collect ordered coordinates into a list of ordered lines
-makeLine <- function(pts,names) {
+# create SpatialPolygons object from ordered coordinates
+makePolygon <- function(pts,poly.id,proj) {
+    # pts: matrix of ordered coordinates
+    # poly.id: character name to ID polygon
+    # proj: CRS proj for SpatialPolygons object
+    require(sp)
+    poly <- Polygon(pts)
+    poly <- Polygons(list(poly),ID=poly.id)
+    poly <- SpatialPolygons(Srl=list(poly),proj4string=CRS(proj))
+    return(poly)
+}
+
+# convert SpatialPolygons to SpatialPolygonsDataFrame
+makeSPDF <- function(poly,df) {
+    # poly: SpatialPolygons object
+    # df: data.frame
+    n <- length(row.names(poly))
+    if (length(unique(row.names(poly)))<n) {
+        row.names(poly) <- paste(row.names(poly),c(1:n),sep=".")
+        df <- data.frame(df,ID=row.names(poly))
+    }
+    row.names(df) <- row.names(poly)
+    poly <- SpatialPolygonsDataFrame(poly,data=df)
+    return(poly)
+}
+
+# connect ordered coordinates, return SpatialLines object
+makeLine <- function(pts,names,poly.id,proj) {
     # pts: a matrix of ordered coordinates
+    # poly.id: character name to ID polygon
+    # proj : CRS proj for SpatialLines object
     require(sp)
     
     n <- nrow(pts)
@@ -70,26 +98,27 @@ makeLine <- function(pts,names) {
     }
     lines[i] <- Line(rbind(pts[i,],pts[1,]))
     lines <- setNames(lines,names)
-    return(lines)
+    lines <- Lines(lines,ID=poly.id)
+    poly.lines <- SpatialLines(list(lines),CRS(proj))
+    return(poly.lines)
 }
 
-# connect ordered lines, return SpatialLinesDataFrame object
-makePolygon <- function(lines,poly.id,proj) {
-    # lines: a list of Line-objects
-    # poly.id :  character name to ID polygon
-    # proj : CRS proj for SpatialLines object
-    require(sp)
-    
-    poly <- Lines(lines,ID=poly.id)
-    poly <- SpatialLines(list(poly),CRS(proj))
-    poly.data <- data.frame(Agency.Name="USD 116",
-                            School.Name=gsub("(.*)\\.\\d+$","\\1",poly.id),
-                            row.names=poly.id)
-    poly <- SpatialLinesDataFrame(poly,data=poly.data)
-    return(poly)
+# convert SpatialLines to SpatialLinesDataFrame
+makeSLDF <- function(poly.lines,df) {
+    # poly: SpatialPolygons object
+    # df: data.frame
+    n <- length(row.names(poly.lines))
+    if (length(unique(row.names(poly.lines)))<n) {
+        row.names(poly.lines) <- paste(row.names(poly.lines),c(1:n),sep=".")
+        df <- data.frame(df,ID=row.names(poly.lines))
+    }
+    row.names(df) <- row.names(poly.lines)
+    poly.lines <- SpatialLinesDataFrame(poly.lines,data=df)
+    return(poly.lines)
 }
 
-# convert SpatialLines* to SpatialPolygons*
+# convert SpatialLines* to SpatialPolygons*, indirectly using maptools
+# more direct: as(poly,"SpatialPolygons*")
 line2poly <- function(poly,data=TRUE){
     # poly: a SpatialLines object
     # if data=TRUE :  SpatialLinesDataFrame -> SpatialPolygonsDataFrame
@@ -104,3 +133,18 @@ line2poly <- function(poly,data=TRUE){
     return(poly)
 }
 
+# like line2poly
+# more direct: as(poly,"SpatialLines*")
+poly2line <- function(poly,data=TRUE){
+    # poly: a SpatialLines object
+    # if data=TRUE :  SpatialLinesDataFrame -> SpatialPolygonsDataFrame
+    require(sp)
+    require(maptools)
+    if (data) poly.data <- poly@data
+    rnames <- row.names(poly)
+    poly <- SpatialPolygons2PolySet(poly)
+    poly <- PolySet2SpatialLines(poly)
+    row.names(poly) <- rnames
+    if (data) poly <- SpatialLinesDataFrame(poly,poly.data)
+    return(poly)
+}
