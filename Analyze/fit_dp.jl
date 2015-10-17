@@ -6,7 +6,9 @@
 using JLD
 
 ## load DP mixture module (packages, functions, etc.)
-include("DPMixture.jl")
+##include("DPMixture/DPMixture.jl")
+push!(LOAD_PATH, "./Analyze/")
+using DPMixture
 
 ## --------------------------------------------------------------------------- #
 

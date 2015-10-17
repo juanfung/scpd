@@ -1,8 +1,11 @@
 ## check DPM output
 
 ## --------------------------------------------------------------------------- #
-## re-load
-##gibbs_out = load("./Data/out.jld", "gibbs_out")
+## re-load output and module
+push!(LOAD_PATH, "./Analyze/")
+using DPMixture
+
+gibbs_out = load("./Data/out.jld", "gibbs_out")
 
 ## --------------------------------------------------------------------------- #
 ## get true values
