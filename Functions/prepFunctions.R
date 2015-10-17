@@ -15,11 +15,11 @@ mysummary <- function(x) {
 }
 
 ## For converting factors to numeric
-as.numeric.factor <- function(x) {x <- as.numeric(as.character(x))}
+as.numeric.factor <- function(x) { return( as.numeric(as.character(x)) ) }
 
 ## For converting character "dollars" to numeric
 deDollarize <- function(x) {
-    x <- as.numeric(gsub("\\$|,","",x))
+    return( as.numeric(gsub("\\$|,","",x)) )
 }
 
 ## combine preceding two:
