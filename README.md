@@ -1,5 +1,6 @@
-**R and Stata code for working with Dataquick data**
+## Code for "Sorting under public school choice"
 
-- import.R: import using package LaF
-- Stata/import.do: import using Stata
-- Stata/statdict.R: create Stata dictionary from layout files for import
+Includes:
+* R and Stata code for working with Dataquick data
+* julia code for Dirichlet Process mixtures
+
