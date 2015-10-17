@@ -1,0 +1,7 @@
+*
+
+# do not ignore
+!.gitignore
+!.fit_dp.jl
+!DPMixture
+!*/
