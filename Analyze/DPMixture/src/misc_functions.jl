@@ -71,18 +71,106 @@ function scale_input(A::Array)
 
 end
 
-function scale_coef(A::Array, s::Array)
+## center and scale data A
+function standardize(A::Array; B=2)
+
+    ## inputs
+    ## A (n x p) : data matrix
+    ## B (Integer): bound on unique values for factors
+    
+    ## outputs
+    ## a (n x p): scaled data matrix
+    ## m (p x 1): centering for each column of A
+    ## s (p x ): scaling for each column of A
+    
+    p = size(A, 2)
+    s = zeros(p)
+    m = zeros(p)
+    a = zeros(size(A))
+    
+    for k in 1:p
+        if size(unique(A[:,k]), 1) <= B ##eltype(A[:,k]) <: Integer
+            ##next
+            s[p] = 1
+            m[p] = 0
+        end
+        s[p] = std(A[:,k])
+        m[p] = mean(A[:,k])
+        a[:,p] = (A[:,k] - m[p])/s[p]
+    end
+    
+    return ScaleData(a=a, m=m, s=s)
     
 end
 
-## estimate PPD for ATE
-function ppd_ate(out::OutTuple)
 
-    betas_out = out.out_theta.betas_out
-    Sigma_out = out.out_theta.Sigma_out
+## re-scale coefficients
+function scale_beta(A::Array{Float64}, my::Float64, sy::Float64, mx::Float64, sx::Float64)
 
-    J_out = out.out_dp.J_out
+    ## input
+    ## A (n x p): original data
+    ## betas:
+    ## Sigma:
+    b = zeros(size(A))
+    b[1] = sy*(A[1] + my - A[2]*mx/sx)
+    b[2] = A[2]*sy/sx
+
+    return b
     
-    return
+end
 
-end     
+
+## re-scale coefficients, redux
+function rescale_beta(beta::Array{Float64}, xs::ScaleData, ys::ScaleData)
+
+    x = xs.a
+    mx = xs.m
+    sx = xs.s
+
+    y = ys.a
+    my = ys.m[1]
+    sy = ys.s[1]
+    
+    p = size(beta, 2)
+
+    b = zeros(size(beta))
+    
+    ##b[1] = sy*( beta[1] + my - sum(beta[2:p].*mx[2:p]./sx[2:p]) ) # NB: mx[1]=0
+    b[1] = sy*( beta[1] + my - dot( beta, mx./sx ) )
+    for k in 2:p
+        b[k] = beta[k]*sy/sx[k]
+    end    
+    
+    return b
+    
+end
+
+
+## rescale MCMC output
+function rescale_output(out::GibbsOut)
+    
+    ys = out.gibbs_init.data_init.y
+    xs = out.gibbs_init.data_init.xmat
+    zs = out.gibbs_init.data_init.zmat
+    
+    M = out.out_tuple.out_M
+    kx = out.gibbs_init.constant_init.dim.kx
+    kz = out.gibbs_init.constant_init.dim.kz
+    ktot = 2kx + kz
+    
+    for m in 1:M
+        J = out.out_tuple.out_dp.J_out[m]
+        betas = out.out_tuple.out_theta.betas_out[m]
+        for j in 1:J
+            ## rescale each coefficient
+            bD = rescale_beta(betas[1:kz,j], zs, ys)
+            b1 = rescale_beta(betas[kz+1:kz+kx,j], xs, ys)
+            b0 = rescale_beta(betas[kz+kx+1:ktot,j], xs, ys)  
+            betas[:,j] = [bD, b1, b0]
+        end
+        out.out_tuple.out_theta.betas_out[m] = betas
+    end
+    
+    return out
+    
+end
