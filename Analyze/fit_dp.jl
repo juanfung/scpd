@@ -3,11 +3,13 @@
 ## --------------------------------------------------------------------------- #
 
 ## load packages
-using JLD
+using JLD, Gadfly, Lint, ProfileView
+##using TypeCheck
 
 ## load DP mixture module (packages, functions, etc.)
-##include("DPMixture/DPMixture.jl")
-push!(LOAD_PATH, "./Analyze/")
+##include("./DPMixture/src/DPMixture.jl")
+push!(LOAD_PATH, ".")
+##push!(LOAD_PATH, "./Analyze")
 using DPMixture
 
 ## --------------------------------------------------------------------------- #
@@ -33,7 +35,7 @@ using DPMixture
 
 ## --------------------------------------------------------------------------- #
 
-df = DataFrames.readtable("./Data/df_1.csv")
+df = DataFrames.readtable("./Data/df_1.csv");
 
 ## pool factors
 facs = [:Garage, :Agency_Name, :Post_Choice, :ProxB, :Buyer_Origin, :Year, :TRACTCE00]
@@ -97,34 +99,39 @@ prior_sigma = DPMixture.PriorSigma(sigma_rho=rho, sigma_R=R);
 
 prior = DPMixture.PriorTuple(prior_dp=prior_dp, prior_beta=prior_beta, prior_sigma=prior_sigma);
 
-param = DPMixture.ParamTuple(M=M, scale_data=true)
-
 ## data input
 data = DPMixture.DataTuple(y_form, d_form, df);
 
 ## --------------------------------------------------------------------------- #
+## seed random number generator
+srand(482016)
+
 ## init JIT
-@time init_jit = DPMixture.dpmixture_init(data, prior, DPMixture.ParamTuple(M=1, scale_data=true));
-@time jit_out = DPMixture.dpmixture(init_jit);
+param = DPMixture.ParamTuple( M=1, scale_data=(true,true) )
+
+@time out = DPMixture.dpmixture_init( data, prior, param );
+@time out = DPMixture.dpmixture(out);
 
 ## --------------------------------------------------------------------------- #
-## init chain
-@time init = DPMixture.dpmixture_init(data, prior, param);
+## continue chain
+
+out.gibbs_init.constant_init.param.M = M
+##@time out = DPMixture.dpmixture_init(data, prior, param);
 
 ## --------------------------------------------------------------------------- #
 ## run chain
-@time gibbs_out = DPMixture.dpmixture(init);
+@time out = DPMixture.dpmixture(out);
 
 ## --------------------------------------------------------------------------- #
 
 ## save output
-JLD.jldopen("out.jld", "w") do file
+JLD.jldopen("./Data/out.jld", "w") do file
     addrequire(file, DPMixture)
     ##write(file, "init", init, "gibbs_out", gibbs_out)
-    write(file, "gibbs_out", gibbs_out)
+    write(file, "out", out)
 end
 
-@printf("First M = %d iterations complete and saved!", M)
+@printf("First M = %d iterations complete and saved!", M+1)
 
 ## --------------------------------------------------------------------------- #
 
@@ -137,3 +144,5 @@ end
 ## 2. continue chain:
 ##@time gibbs_out = DPMixture.dpmixture(gibbs_out);
 
+## 3. clear memory, if necessary:
+##@time gibbs_out = DPMixture.dpmixture_dump(gibbs_out, fname="out_x19");
