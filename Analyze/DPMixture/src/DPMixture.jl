@@ -3,7 +3,7 @@
 module DPMixture
 
 ## load packages
-using DataFrames, Distributions, Debug
+using DataFrames, Distributions, Debug, JLD
 
 ## --------------------------------------------------------------------------- #
 ## Priors
@@ -53,12 +53,12 @@ PriorTuple(; prior_dp=PriorDP(), prior_beta=PriorBeta(), prior_sigma=PriorSigma(
 ## Sampler parameters
 type ParamTuple
     M::Int64
-    scale_data::Bool
+    scale_data::Tuple{Bool,Bool}
     verbose::Bool
 end
 
 ## default constructor
-ParamTuple(; M=100, scale_data::Bool=false, verbose::Bool=true) = ParamTuple(M, scale_data, verbose)
+ParamTuple(; M=100, scale_data=(false,false), verbose=true) = ParamTuple(M, scale_data, verbose)
 
 ## --------------------------------------------------------------------------- #
 ## Data
@@ -70,14 +70,23 @@ type DataTuple
     df::DataFrame
 end
 
+## standardized data
+type ScaleData
+    a::Array{Float64}
+    m::Array{Float64}
+    s::Array{Float64}
+end
+
+ScaleData(; a=[0.0], m=[0.0], s=[1.0]) = ScaleData(a, m, s)
+
 ## data matrices used by sampler
 type GibbsData
-    y::Array{Float64}
+    y::Union{Array{Float64},ScaleData}
     d::Array{Int64}
     d_l::Array{Float64}
     d_u::Array{Float64}
-    xmat::Array{Float64}
-    zmat::Array{Float64}
+    xmat::Union{Array{Float64},ScaleData}
+    zmat::Union{Array{Float64},ScaleData}
     Hmat::SparseMatrixCSC{Float64,Int64}
 end
 
@@ -125,13 +134,16 @@ StateTheta(; betas=zeros(2), Sigma=eye(3)) = StateTheta(betas, Sigma)
 type GibbsState
     state_data::StateData
     state_dp::StateDP
-    state_theta::StateTheta
+    state_theta::StateTheta    
     chain::Bool
+    batch_n::Int64
+    batch_m::Int64
 end
 
 ## default constructor
-GibbsState(; state_data=StateData(), state_dp=StateDP(), state_theta=StateTheta(), chain=false) =
-    GibbsState(state_data, state_dp, state_theta, chain)
+GibbsState(; state_data=StateData(), state_dp=StateDP(), state_theta=StateTheta(),
+           chain=false, batch_n=1, batch_m=0) = GibbsState(state_data, state_dp, state_theta,
+                                                           chain, batch_n, batch_m)
 
 ## --------------------------------------------------------------------------- #
 ## Collect constants
@@ -186,8 +198,7 @@ OutDP(; J_out=Array(Int64,0),
       eta_out=Array(Float64,0)) = OutDP(J_out, label_out, alpha_out, eta_out)
 
 ## component parameters (variable size)
-type
-    OutTheta
+type OutTheta
     betas_out::Array{Array{Float64,2},1} #Array{Any,1}
     Sigma_out::Array{Array{Float64,3},1}
 end
@@ -197,7 +208,7 @@ OutTheta(; betas_out=Array(Array{Float64,2},0), Sigma_out=Array(Array{Float64,2}
     OutTheta(betas_out, Sigma_out)
 
 ## collect pre-allocated objects
-type OutTuple
+type OutTuple    
     out_M::Int64
     out_data::OutData
     out_dp::OutDP
@@ -245,18 +256,32 @@ export PriorDP, PriorBeta, PriorSigma, PriorTuple, ParamTuple, DataTuple
 export StateData, StateDP, StateTheta
 export OutData, OutDP, OutTheta, OutTuple
 export GibbsData, GibbsState, GibbsConstant, GibbsInit, GibbsOut
+export PosteriorPredictive, PPD
+export ScaleData
 
 ## export functions
-export flip_mat, NobileWishart, truncnorm
-export dpmixture_init, dpmixture_chain, dpmixture_gibbs, dpmixture_blocked, mixture_gibbs, dpmixture
+export flip_mat, NobileWishart, truncnorm, standardize, rescale_beta, rescale_output
+export dpmixture_init, dpmixture_chain, dpmixture_gibbs, dpmixture_blocked, dpmixture_dump, dpmixture
+export dpmixture_ate
+export fmn_gibbs # FMN
 
 ## --------------------------------------------------------------------------- #
-## load functions
-
+## load misc functions
 include("misc_functions.jl")
+
+## initialization, chaining functions
 include("dpmixture_init.jl")
+
+## marginalized polya urn sampler
 include("dpmixture_gibbs.jl")
+
+## blocked gibbs sampler
 include("dpmixture_blocked.jl")
-include("mixture_gibbs.jl")
+
+## fmn gibbs sampler
+include("fmn_gibbs.jl")
+
+## posterior predictives
+include("dpmixture_ppd.jl")
 
 end

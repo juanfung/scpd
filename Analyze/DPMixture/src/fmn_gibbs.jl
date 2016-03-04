@@ -1,10 +1,9 @@
-## (Marginalized) Polya Urn Gibbs sampler for DPM
+## Gibbs sampler for FMN model
 
-##@debug
-function dpmixture_gibbs(init::GibbsInit)
+@debug function fmn_gibbs(init::GibbsInit)
     
     ## get data
-    const data = init.data_init
+    data = init.data_init
     const y = data.y.a
     const d = data.d
     const lower = data.d_l
@@ -14,24 +13,24 @@ function dpmixture_gibbs(init::GibbsInit)
     const Hmat = data.Hmat
     
     ## get constants
-    const dim = init.constant_init.dim
+    dim = init.constant_init.dim
     const n = dim.n
     const kx = dim.kx
     const kz = dim.kz
     const ktot = dim.ktot
     const epsilon = eps(Float64)
     
-    const param = init.constant_init.param
+    param = init.constant_init.param
     const M = param.M
     const scale_data = param.scale_data
     const verbose = param.verbose
     
     ## get prior settings
-    const dp_prior = init.constant_init.prior.prior_dp
+    dp_prior = init.constant_init.prior.prior_dp
     const alpha_a = dp_prior.alpha_shape
     const alpha_b = dp_prior.alpha_rate
     
-    const beta_prior = init.constant_init.prior.prior_beta
+    beta_prior = init.constant_init.prior.prior_beta
     const beta_mu = beta_prior.beta_mu
     const beta_nu = beta_prior.beta_nu
     const beta_V = beta_prior.beta_V
@@ -39,7 +38,7 @@ function dpmixture_gibbs(init::GibbsInit)
     beta_VInv = beta_V\I_K
     priorpart = *(beta_VInv, beta_mu)
     
-    const sigma_prior = init.constant_init.prior.prior_sigma
+    sigma_prior = init.constant_init.prior.prior_sigma
     const rho = sigma_prior.sigma_rho
     const R = sigma_prior.sigma_R
     
@@ -50,8 +49,10 @@ function dpmixture_gibbs(init::GibbsInit)
                        y0_out=zeros(n, M),
                        y_out=zeros(n, M) )
     
-    dp_out = OutDP( J_out=zeros(Int64, M), label_out=zeros(Int64, n, M),
-                   alpha_out=zeros(M), eta_out=zeros(M) )
+    dp_out = OutDP( J_out=zeros(Int64, M),
+                   label_out=zeros(Int64, n, M),
+                   alpha_out=zeros(M),
+                   eta_out=zeros(M) )
     
     theta_out = OutTheta( betas_out=Array(Array{Float64,2}, M),
                          Sigma_out=Array(Array{Float64,3}, M) )
@@ -60,10 +61,6 @@ function dpmixture_gibbs(init::GibbsInit)
     state = init.state_init
     
     chain_state = state.chain
-
-    batch_n = state.batch_n
-
-    batch_m = state.batch_m
     
     ## init latent data
     data_state = state.state_data
@@ -83,8 +80,8 @@ function dpmixture_gibbs(init::GibbsInit)
     eta = dp_state.eta
     
     zdenom = alpha + n - 1
+    w = zeros(J)
     w_hat = zeros(J)
-    w_new = 0.0
     
     ## count component membership
     ##counts = [count(z->z==j, label) for j in 1:J]
@@ -99,93 +96,47 @@ function dpmixture_gibbs(init::GibbsInit)
     SigmaInv = mapslices(s->s\I_3, Sigma, [1, 2])
     
     ## begin the sampler
-    if verbose @printf("Batch %d\nInitial J = %d\nInitial alpha = %f\nBegin sampler...", batch_n, J, alpha) end
+    if verbose @printf("Number of components J = %d\nalpha = %f\nBegin sampler...", J, alpha) end
     
-    @inbounds for m in 1:M
-
+    for m in 1:M
+        
         ## 1. update labels
-        if verbose && floor(M/m) == M/m @printf("\nIteration: %d\nUpdating labels...", m+batch_m) end
-
+        if verbose && floor(M/m) == M/m @printf("Updating labels...") end
+        
         ## sample component label for each i
-        for i in 1:n
+        for i in 1:n # shuffle([1:n])
             ji = label[i] # current cluster
-            label[i] = 0 # remove from cluster
+            ##@bp
+            ##label[i] = 0 # remove cluster ## UNNECESSARY
             njs[ji] = njs[ji] - 1 # decrease count in cluster ji
-            ## REMOVE EMPTY COMPONENT!
-            if njs[ji] == 0
-                ## remove component parameters
-                ##Sigma = Sigma[:,:,1:J.!=ji]
-                ##SigmaInv = SigmaInv[:,:,1:J.!=ji]
-                Sigma = Sigma[:,:,vcat(1:ji-1, ji+1:J)]
-                SigmaInv = SigmaInv[:,:,vcat(1:ji-1, ji+1:J)]
-                betas = betas[:,1:J.!=ji]
-                njs = deleteat!(njs, ji)
-                ## shift labels
-                idx = find(z -> z>ji, label)
-                label[idx] = label[idx] - 1
-                J = J - 1
-            end
             
-            Hi = Hmat[vcat(i, i+n, i+2*n), :] # 3 x ktot
+            Hi = Hmat[vcat(i, i+n, i+2*n), :] # 3 x Ktot
             
             ## prob of sampling existing component
-            w_hat = resize!(w_hat, J)
-            ##w_hat = map(j-> logpdf(MvNormal(Hi*betas[:,j], Sigma[:,:,j]), yuse[:,i]), 1:J)
             for j in 1:J
                 w_hat[j] = logpdf(MvNormal(Hi*betas[:,j], Sigma[:,:,j]), yuse[:,i])
             end
-            ## normalize
-            w_hat = (njs/zdenom).*exp(w_hat)
+            w = (njs + alpha/J)/zdenom
+            w_hat = w.*exp(w_hat)
+            ##w_hat = max(w_hat, epsilon)
+            w_hat = w_hat/sum(w_hat)
             
-            ## probability of sampling new component
-            ## sample Sigma
-            R_hat = yuse[:,i] - Hi*beta_mu # 3 x nj
-            R_hat = R_hat*R_hat' # 3 x 3
-            R_hat = R_hat + rho*R
-            Sigma_j = NobileWishart(rho+1, R_hat)
-            SigmaInv_j = Sigma_j\I_3
-            ## sample betas
-            xmatpart = Hi'*SigmaInv_j # ktot x 3            
-            covmatpart = xmatpart*Hi + beta_VInv # ktot x ktot
-            covmatpart = covmatpart\I_K # ktot x ktot
-            ymatpart = xmatpart*yuse[:,i] # ktot x 1
-            meanpart = covmatpart*( ymatpart + priorpart ) # ktot x 1
-            betas_j = meanpart + chol(covmatpart)'*randn(ktot)
-            
-            w_new = logpdf(MvNormal(Hi*betas_j, Sigma_j), yuse[:,i])
-            w_new = (alpha/zdenom)*exp(w_new)
-            
-            w = vcat(w_hat, w_new)
-            w = max(w, epsilon)
-            w = w/sum(w)
-            
-            ji = rand( Categorical(w) )
+            ji = rand( Categorical(w_hat) )
             label[i] = ji
-            
-            if ji == J + 1
-                ## update J
-                J = J + 1
-                ji = J
-                njs = push!(njs, 0)
-                ## update components
-                Sigma = cat(3, Sigma, Sigma_j)
-                SigmaInv = cat(3, SigmaInv, SigmaInv_j)
-                betas = hcat(betas, betas_j) # [betas betas_j]
-            end
-            
-            ## update counts
             njs[ji] = njs[ji] + 1
             
         end
         ##@bp size(Sigma, 3) > J
-        ##@bp size(SigmaInv, 3) > J
+        ##@bp size(Sigma, 3) > J
         
-        if verbose && floor(M/m) == M/m @printf("\nCurrent J = %d", J) end
+        ## monitor upper bound
+        ##if verbose && floor(M/m) == M/m @printf("\nMax J = %d", maximum(label)) end
         
         ## update counts
-        ##njs = StatsBase.counts(label, 1:J)
+        ##@bp
+        ##njs = StatsBase.counts(label, 1:J) ## UNNECESSARY
         
-        ## extract coefficients
+        ## 1b. extract coefficients
         betaD = betas[1:kz,:]
         beta1 = betas[(kz+1):(kz+kx),:]
         beta0 = betas[(kz+kx+1):ktot,:]
@@ -195,17 +146,18 @@ function dpmixture_gibbs(init::GibbsInit)
         sig1D = map(sj -> Sigma[1,2,sj], 1:J)
         sig0D = map(sj -> Sigma[1,3,sj], 1:J)
         sig10 = map(sj -> Sigma[2,3,sj], 1:J)
-        
+
         ## 2. update latent data and component parameters
-        if verbose && floor(M/m) == M/m @printf("\nUpdating data and parameters...") end
+        if verbose && floor(M/m) == M/m
+            @printf("\nIteration: %d\nUpdating data and parameters...", m)
+        end
         
         for j in 1:J
             
             nj = njs[j]
             
-            if nj == 0
-                continue
-            end
+            if nj == 0 continue end
+            ## Sample component from posterior
             
             idx = find(z -> z==j, label)
             
@@ -233,9 +185,11 @@ function dpmixture_gibbs(init::GibbsInit)
             (dstarj - zth)*( ( (sig1[j])^2*(sig0D[j]) - (sig10[j])*(sig1D[j]) )/denom1 ) +
             (yj - xb1)*( ( (sig10[j]) - (sig0D[j])*(sig1D[j]) )/denom1 )
             
-            omega1 = (sig1[j])^2 - ( ( (sig1D[j])^2*(sig0[j])^2 - 2*middle + (sig10[j])^2 )/denom0 )
+            omega1 = (sig1[j])^2 -
+            ( ( (sig1D[j])^2*(sig0[j])^2 - 2*middle + (sig10[j])^2 )/denom0 )
             
-            omega0 = (sig0[j])^2 - ( ( (sig0D[j])^2*(sig1[j])^2 - 2*middle + (sig10[j])^2 )/denom1 )
+            omega0 = (sig0[j])^2 -
+            ( ( (sig0D[j])^2*(sig1[j])^2 - 2*middle + (sig10[j])^2 )/denom1 )
             
             mu_miss = (1 .- dj).*mu1 + dj.*mu0
             
@@ -245,7 +199,7 @@ function dpmixture_gibbs(init::GibbsInit)
             ##ymiss_j = rand(Normal(mu_miss, sqrt(var_miss)), nj)
             
             ymiss[idx] = ymiss_j
-                        
+            
             ## 2b. draw latent data
             
             denomd = (sig1[j]^2)*(sig0[j]^2) - (sig10[j]^2)
@@ -256,9 +210,11 @@ function dpmixture_gibbs(init::GibbsInit)
             sd1 = ( ( (sig0[j])^2*(sig1D[j]) - (sig10[j])*(sig0D[j]) )/denomd )
             sd0 = ( ( (sig1[j])^2*(sig0D[j]) - (sig10[j])*(sig1D[j]) )/denomd )
             
-            mu_d = zth + (y1j - xb1)*sd1 + (y0j - xb0)*sd0            
+            mu_d = zth + (y1j - xb1)*sd1 + (y0j - xb0)*sd0
             
-            omega_d = 1 - ( ( (sig1D[j])^2*(sig0[j])^2 - 2*middle + (sig0D[j])^2*(sig1[j])^2 )/denomd )            
+            omega_d = 1 -
+            ( ( (sig1D[j])^2*(sig0[j])^2 - 2*middle + (sig0D[j])^2*(sig1[j])^2 )/denomd )
+            
             ##@bp omega_d < 0
             
             for i in 1:nj
@@ -269,7 +225,7 @@ function dpmixture_gibbs(init::GibbsInit)
             end
             ##dstarj = truncnorm(mu_d, repmat([sqrt(omega_d)], nj), dj) # or sqrt(omega_d)*ones(n)
             
-            ##@bp count(d->d==Inf, dstarj) > 0
+            @bp count(dsj -> dsj==Inf, dstarj) > 0
             
             ## save latent data
             dstar[idx] = dstarj
@@ -294,69 +250,47 @@ function dpmixture_gibbs(init::GibbsInit)
             ## Debugging with true Sigma
             ##Sigma_j = SigmaTrue
             
-            Sigma[:,:,j] = Sigma_j
-            SigmaInv[:,:,j] = SigmaInv_j
-            
             ## 2d. draw coefficient vectors
             
             yusej = vcat(dstarj, y1j, y0j) # 3nj x 1
             
             sigXi = kron( SigmaInv_j, speye(nj) ) # 3nj x 3nj
             
-            xmatpart = Hj'*sigXi # ktot x 3nj
+            xmatpart = Hj'*sigXi # Ktot x 3nj
             
-            covmatpart = xmatpart*Hj + beta_VInv # ktot x ktot
+            covmatpart = xmatpart*Hj + beta_VInv # Ktot x Ktot
             
-            covmatpart = covmatpart\I_K # ktot x ktot
+            covmatpart = covmatpart\I_K # Ktot x Ktot
             ## better approach?
             
-            ymatpart = xmatpart*yusej # ktot x 1
+            ymatpart = xmatpart*yusej # Ktot x 1
             
-            meanpart = covmatpart*(ymatpart + priorpart) # ktot x 1
+            meanpart = covmatpart*(ymatpart + priorpart) # Ktot x 1
             
             betas_j = meanpart + chol(covmatpart)'*randn(ktot)
             ##betas_j = rand(MvNormal(meanpart, covmatpart))
-            betas[:,j] = betas_j
+            
+            Sigma[:,:,j] = Sigma_j
+            SigmaInv[:,:,j] = SigmaInv_j
+            betas[:,j] = betas_j          
             
         end
-
+        
         ## 2e. store agumented data
         yuse[1,:] = dstar
         yuse[2,:] = y1
         yuse[3,:] = y0
-        
-        ## 3. update alpha via Esboar and West (1994) method
-        ## Assumes conjugate gamma prior, G(a,b)
-        
-        if alpha_a !=0
-            
-            if verbose && floor(M/m) == M/m @printf("\nUpdating alpha...") end
 
-            ## sample auxiliary variable
-            eta = rand( Beta(alpha+1, n) )
-            b_star = alpha_b - log(eta)
-            A = (alpha_a + J - 1)/(n*b_star)
-            pi_eta = A/(1 + A)
-            a_star = ifelse(pi_eta > 0.5, alpha_a + J, alpha_a + J - 1)
-            
-            ## sample alpha
-            alpha = rand( Gamma(a_star, 1/b_star) )
-            zdenom = alpha + n - 1
-            
-        end        
-        
-        if verbose && floor(M/m) == M/m @printf("\nCurrent alpha = %f", alpha) end
-        
-        ## 4. save iteration m draws
+        ## 3. save iteration m draws
         if verbose && floor(M/m) == M/m @printf("\nDone!") end
-
+        
         ## save augmented data
         data_out.dstar_out[:,m] = dstar
         data_out.ymiss_out[:,m] = ymiss
         data_out.y1_out[:,m] = y1
         data_out.y0_out[:,m] = y0
         data_out.y_out[:,m] = d.*y1 + (1 .- d).*y0
-        ####@bp mean(data_out.y_out[:,m]) != mean(y)
+        ##@bp data_out.y_out[:,m] != mean(y)
         
         ## save DP parameters
         dp_out.J_out[m] = J
@@ -367,15 +301,13 @@ function dpmixture_gibbs(init::GibbsInit)
         ## save component parameters
         theta_out.betas_out[m] = betas
         theta_out.Sigma_out[m] = Sigma
-
+        
     end
 
     if verbose @printf("\nSampler run complete.\n") end
     
     ## collect output
-    M_out = M + batch_m
-
-    out = OutTuple(out_M=M_out, out_data=data_out, out_dp=dp_out, out_theta=theta_out)
+    out = OutTuple(out_M=M, out_data=data_out, out_dp=dp_out, out_theta=theta_out)
     
     data_state = StateData(dstar=dstar, ymiss=ymiss, y1=y1, y0=y0, yuse=yuse)
     dp_state = StateDP(J=J, alpha=alpha, label=label, eta=eta)
@@ -385,9 +317,7 @@ function dpmixture_gibbs(init::GibbsInit)
     init.state_init = GibbsState(state_data=data_state,
                                  state_dp=dp_state,
                                  state_theta=theta_state,
-                                 chain=chain_state,
-                                 batch_n=batch_n,
-                                 batch_m=M_out)
+                                 chain=chain_state)
     
     gibbs_out = GibbsOut(out, init)
     

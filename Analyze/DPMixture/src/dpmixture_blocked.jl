@@ -4,12 +4,12 @@
     
     ## get data
     data = init.data_init
-    const y = data.y
+    const y = data.y.a    
     const d = data.d
     const lower = data.d_l
     const upper = data.d_u
-    const xmat = data.xmat
-    const zmat = data.zmat
+    const xmat = data.xmat.a
+    const zmat = data.zmat.a
     const Hmat = data.Hmat
     
     ## get constants
@@ -51,7 +51,7 @@
     
     dp_out = OutDP( J_out=zeros(Int64, M),
                    label_out=zeros(Int64, n, M),
-                   alpha_out=zeros(M) )
+                    alpha_out=zeros(M) )
     
     theta_out = OutTheta( betas_out=Array(Array{Float64,2}, M),
                          Sigma_out=Array(Array{Float64,3}, M) )
@@ -119,23 +119,26 @@
         
         ## sample component label for each i
         for i in 1:n # shuffle([1:n])
-            ji = label[i] # current cluster
-            label[i] = 0 # remove cluster
-            njs[ji] = njs[ji] - 1 # decrease count in cluster ji
+            
+            ##ji = label[i] # current cluster # UNNECESSARY
+            ##label[i] = 0 # remove cluster # UNNECESSARY
+            ##njs[ji] = njs[ji] - 1 # decrease count in cluster ji # UNNECESSARY
             
             Hi = Hmat[vcat(i, i+n, i+2*n), :] # 3 x Ktot
             
-            ## prob of sampling existing component
+            ## prob of sampling a component
             for j in 1:J
                 w_hat[j] = logpdf(MvNormal(Hi*betas[:,j], Sigma[:,:,j]), yuse[:,i])
             end
-            ##w_hat = (njs/zdenom).*exp(w_hat)
-            w_hat = max(w.*w_hat, epsilon)
+            ##w_hat = (njs/zdenom).*exp(w_hat) # UNNECESSARY
+            
+            w_hat = w.*exp(w_hat)
+            ##w_hat = max(w.*exp(w_hat), epsilon) # OVERKILL?
             w_hat = w_hat/sum(w_hat)
             
             ji = rand( Categorical(w_hat) )
             label[i] = ji
-            njs[ji] = njs[ji] + 1
+            ##njs[ji] = njs[ji] + 1 # UNNECESSARY
             
         end
         ##@bp size(Sigma, 3) > J
@@ -146,6 +149,10 @@
         
         ## update counts
         njs = StatsBase.counts(label, 1:J)
+
+        ## monitor empty components
+        if verbose && floor(M/m) == M/m @printf("\nEmpty components = %d", J-countnz(njs) ) end 
+        ##if verbose && floor(M/m) == M/m @printf("\nEmpty components = %d", count(z->z==0, njs) ) end
         
         ## 1b. update stick-breaking weights
         for j in 1:J-1
@@ -162,11 +169,11 @@
         beta1 = betas[(kz+1):(kz+kx),:]
         beta0 = betas[(kz+kx+1):ktot,:]
         
-        sig1 = map(j -> sqrt(Sigma[2,2,j]), 1:J)
-        sig0 = map(j -> sqrt(Sigma[3,3,j]), 1:J)
-        sig1D = map(j -> Sigma[1,2,j], 1:J)
-        sig0D = map(j -> Sigma[1,3,j], 1:J)
-        sig10 = map(j -> Sigma[2,3,j], 1:J)
+        sig1 = map(sj -> sqrt(Sigma[2,2,sj]), 1:J)
+        sig0 = map(sj -> sqrt(Sigma[3,3,sj]), 1:J)
+        sig1D = map(sj -> Sigma[1,2,sj], 1:J)
+        sig0D = map(sj -> Sigma[1,3,sj], 1:J)
+        sig10 = map(sj -> Sigma[2,3,sj], 1:J)
         
         ## 2. update latent data and component parameters
         if verbose && floor(M/m) == M/m @printf("\nUpdating data and parameters...") end
@@ -185,7 +192,7 @@
             else
                 ## Sample component from posterior
                 
-                idx = find(z -> z==j, label)
+                idx = find(z -> z==j, label)                                
                 
                 dstarj = dstar[idx]
                 yj = y[idx]
@@ -251,7 +258,7 @@
                 end
                 ##dstarj = truncnorm(mu_d, repmat([sqrt(omega_d)], nj), dj) # or sqrt(omega_d)*ones(n)
                 
-                @bp count(d->d==Inf, dstarj) > 0
+                @bp count(dsj -> dsj==Inf, dstarj) > 0
                 
                 ## save latent data
                 dstar[idx] = dstarj
@@ -280,7 +287,7 @@
                 
                 yusej = vcat(dstarj, y1j, y0j) # 3nj x 1
                 
-                sigXi = kron( SigmaInv_j, eye(nj) ) # 3nj x 3nj
+                sigXi = kron( SigmaInv_j, speye(nj) ) # 3nj x 3nj
                 
                 xmatpart = Hj'*sigXi # Ktot x 3nj
                 
@@ -342,7 +349,7 @@
         dp_out.J_out[m] = J
         dp_out.label_out[:,m] = label
         dp_out.alpha_out[m] = alpha
-        dp_out.eta_out[:,m] = v
+        dp_out.eta_out[:,m] = v # store weights
         
         ## save component parameters
         theta_out.betas_out[m] = betas

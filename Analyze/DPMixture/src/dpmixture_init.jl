@@ -1,34 +1,21 @@
-## Set up to run Gibbs sampler for DPM
+## Set up to run/continue Gibbs sampler for DPMs, etc.
 
-## new chain:
-## a. function(data,prior,params)
-## b. call init(gibbs)
-## b. call gibbs(init)
-
-## continue chain:
-## a. function(chain)
-## b. call continue(chain)
-## c. call gibbs(continue)
-
-##init = function() end
-
-## Inputs:
-## Dat (data type object)
-## Prior (prior type object)
-## Param (param type object)
-
-## Output:
-## Gibbs (gibbs type object)
-
-##using DataFrames, Distibutions
-
+## initialize sampler
 function dpmixture_init(data::DataTuple, prior::PriorTuple, param::ParamTuple)
-
+    
+    ## Inputs:
+    ## data (data type object): DataFrame and Formula objects
+    ## prior (prior type object): prior hyperparameters
+    ## param (param type object): sampler parameters
+    
+    ## Output:
+    ## GibbsInit (gibbs init type object): input to sampler
+    
     ## 1. get MCMC parameters
-
-    M = param.M    
-    scale_data = param.scale_data
-    verbose = param.verbose
+    
+    const M = param.M    
+    const scale_data = param.scale_data
+    const verbose = param.verbose
     if verbose
         println("M = ", M)
         println("scale data = ", scale_data)
@@ -38,9 +25,9 @@ function dpmixture_init(data::DataTuple, prior::PriorTuple, param::ParamTuple)
     ## 2. get data -> model matrix
     ##    - optional: scale data
     
-    y_form = data.y_form
-    d_form = data.d_form
-    df = data.df
+    const y_form = data.y_form
+    const d_form = data.d_form
+    const df = data.df
     y = convert(Array, df[y_form.lhs])
     d = convert(Array, df[d_form.lhs])
     
@@ -55,16 +42,29 @@ function dpmixture_init(data::DataTuple, prior::PriorTuple, param::ParamTuple)
     kx = size(xmat, 2)
     kz = size(zmat, 2)
     ktot = 2*kx + kz
-    
-    if scale_data
-        if verbose println("Scaling data...") end
-        y = scale_input(y)
-        xmat[:,2:kx] = scale_input(xmat[:,2:kx])
-        zmat[:,2:kx] = scale_input(zmat[:,2:kx])
+
+    ## scale data?
+    if true in scale_data
+        if scale_data[1]
+            if verbose println("Scaling response...") end
+            ## scale response?
+            ys = standardize(y)
+        else
+            ys = ScaleData(a=y)
+        end
+        if scale_data[2]
+            if verbose println("Scaling inputs...") end
+            ## scale inputs?
+            xmats = standardize(xmat)
+            zmats = standardize(zmat)
+        else
+            xmats = ScaleData(a=xmat, m=zeros(kx), s=ones(kx))
+            zmats = ScaleData(a=zmat, m=zeros(kz), s=ones(kz))
+        end
     end
     
     ## construct block-diag H
-    Hmat = blkdiag(sparse(zmat), sparse(xmat), sparse(xmat))
+    Hmat = blkdiag(sparse(zmats.a), sparse(xmats.a), sparse(xmats.a))
     if verbose println("Hmat dim:\nN = ", size(Hmat, 1), ", K = ", ktot) end
     
     dim_tup = DimTuple(n=n, kx=kx, kz=kz, ktot=ktot)
@@ -74,7 +74,7 @@ function dpmixture_init(data::DataTuple, prior::PriorTuple, param::ParamTuple)
     upper = ifelse( d .== 1, Inf, 0 )
     
     ## collect data objects
-    data_in = GibbsData(y=y, d=d, d_l=lower, d_u=upper, xmat=xmat, zmat=zmat, Hmat=Hmat)
+    data_in = GibbsData(y=ys, d=d, d_l=lower, d_u=upper, xmat=xmats, zmat=zmats, Hmat=Hmat)
     
     ## 3. initialize sampler
     dim_tup = DimTuple(n=n, kx=kx, kz=kz, ktot=ktot)
@@ -83,19 +83,19 @@ function dpmixture_init(data::DataTuple, prior::PriorTuple, param::ParamTuple)
     
     ## 7. Initialize values
     ##    - J, dstar, label, betas, Sigma, SigmaInv
-    J = prior.prior_dp.J
+    const J = prior.prior_dp.J
     
     dstar = zeros(n)
     for i in 1:n
-        dstar[i] = rand( TruncatedNormal(0, 1, lower[i], upper[i]) )
+        @inbounds dstar[i] = rand( TruncatedNormal(0, 1, lower[i], upper[i]) )
     end
     ##dstar = truncnorm(zeros(n), ones(n), d)
-
+    
     yuse = zeros(3, n)
     yuse[1, :] = dstar
     
     ## assign component membership uniformly
-    label = sample(1:J, n)    
+    label = sample(1:J, n)
     
     if prior.prior_dp.alpha_shape != 0
         alpha_a = prior.prior_dp.alpha_shape
@@ -105,31 +105,32 @@ function dpmixture_init(data::DataTuple, prior::PriorTuple, param::ParamTuple)
         a_star = alpha_a + J - 1 # shape parameter for updating
         eta = (alpha + 1)/(alpha + 1 + n)
     else
-        alpha = prior.prior_dp.alpha        
-        eta = 0.0
+        const alpha = prior.prior_dp.alpha
+        const eta = 0.0
     end
     
     betas = rand( MvNormal(prior.prior_beta.beta_mu, prior.prior_beta.beta_V), J) # 3 x J
     
-    Sigma = NobileWishart(prior.prior_sigma.sigma_rho, prior.prior_sigma.sigma_R, n=J) # 3 x 3 x J
-
+    Sigma = NobileWishart(prior.prior_sigma.sigma_rho,
+                          prior.prior_sigma.sigma_rho*prior.prior_sigma.sigma_R, n=J) # 3 x 3 x J
+    
     data_state = StateData(dstar=dstar, ymiss=zeros(n), y1=zeros(n), y0=zeros(n), yuse=yuse)
-
+    
     dp_state = StateDP(J=J, alpha=alpha, label=label, eta=eta)
-
+    
     theta_state = StateTheta(betas=betas, Sigma=Sigma)
-
+    
     state_in = GibbsState(state_data=data_state, state_dp=dp_state, state_theta=theta_state)
     
     init = GibbsInit(data_init=data_in,
                      constant_init=constant_in,
                      state_init=state_in)
-
+    
     return init
-
+    
 end
 
-## continue iterating a MCMC chain
+## continue sampler, using last state as init
 function dpmixture_chain(out::GibbsOut)
     
     println("Continuing from last state...")
@@ -138,10 +139,14 @@ function dpmixture_chain(out::GibbsOut)
     chain_out = dpmixture_gibbs(init)
     
     ## append new out to old
-
-    ## total iterations
-    new_M = chain_out.out_tuple.out_M
-    out.out_tuple.out_M += new_M
+    
+    ## update current run and total iterations (1 through out_M)
+    ## NB: done in gibbs sampler
+    ##chain_out.out_tuple.out_M
+    new_M = chain_out.gibbs_init.state_init.batch_m 
+    out.out_tuple.out_M = new_M
+    ## update batch
+    new_M = chain_out.gibbs_init.state_init.batch_m
     
     ## update data
     new_data = chain_out.out_tuple.out_data
@@ -180,17 +185,83 @@ function dpmixture_chain(out::GibbsOut)
 
 end
 
-## call gibbs sampler
+## wrapper to call gibbs sampler
 function dpmixture{T<:GibbsType}(in::T)
-
-    if typeof(in) == GibbsOut
+    
+    if typeof(in) == DPMixture.GibbsOut
         ## *CALL Gibbs and append new output to old
         out = dpmixture_chain(in)
-    elseif typeof(in) == GibbsInit
+        ##out = dpmixture_dump(in) ## NB: separates output
+    elseif typeof(in) == DPMixture.GibbsInit
         out = dpmixture_gibbs(in)
     end
+    
+    return out
+    
+end
 
+## save output to disk and collect garbage
+## return last state to continue sampler
+function dpmixture_dump(out::GibbsOut; fname="out")
+    
+    ## save current state
+    init = out.gibbs_init
+    
+    ## current number of iterations
+    old_M = out.out_tuple.out_M
+    out.gibbs_init.state_init.batch_m = old_M
+    
+    ## current "batch" number
+    batch_n = out.gibbs_init.state_init.batch_n
+    
+    ## write to disk using JLD:
+    ##out_name = "out_$(old_M)"
+    out_name = "$(fname)_$(batch_n)"
+    
+    JLD.jldopen(out_name*".jld", "w") do file
+        addrequire(file, DPMixture)
+        write(file, out_name, out)
+    end
+    
+    ## clear memory
+    out = 0
+    gc()
+    
+    ## update batch number
+    init.state_init.batch_n = batch_n + 1
+    
+    ## continue chain
+    ## NB: automatically inherits state chain=true
+    out = dpmixture(init)
+    
+    ## update runs as (out_m out of out_M)    
+    out.out_tuple.out_M += old_M
+    
     return out
 
 end
 
+
+## combine output from series of chains
+## **use constructors??
+## **to read from disk:
+## out = load("./out.jld", "out")
+function dpmixture_combine(out1::GibbsOut, out2::GibbsOut)
+    
+    ## input: out1, out2 - GibbsOut objects
+    ## output: out - GibbsOut object with out.gibbs_init = out2.gibbs_init
+
+    ## 1. combine out_tuples via vcat/hcat
+    ## out = out1.out_tuple
+    
+    ## 2. clear, gc()
+    ## out1 = 0
+    ## out2 = 0
+    ## gc()
+
+    ## 3. output
+    ## out = GibbsOut(out_tuple=out, gibbs_init=out2.gibbs_init)
+
+    ##return out
+
+end
