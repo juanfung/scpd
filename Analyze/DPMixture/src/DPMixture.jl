@@ -200,7 +200,8 @@ OutDP(; J_out=Array(Int64,0),
 ## component parameters (variable size)
 type OutTheta
     betas_out::Array{Array{Float64,2},1} #Array{Any,1}
-    Sigma_out::Array{Array{Float64,3},1}
+    ##Sigma_out::Array{Array{Float64,3},1}
+    Sigma_out::Union{Array{Array{Float64,2},1},Array{Array{Float64,3},1}}
 end
 
 ## default constructor
@@ -264,6 +265,7 @@ export flip_mat, NobileWishart, truncnorm, standardize, rescale_beta, rescale_ou
 export dpmixture_init, dpmixture_chain, dpmixture_gibbs, dpmixture_blocked, dpmixture_dump, dpmixture
 export dpmixture_ate
 export fmn_gibbs # FMN
+export gaussian_gibbs # FMN
 
 ## --------------------------------------------------------------------------- #
 ## load misc functions
@@ -280,6 +282,9 @@ include("dpmixture_blocked.jl")
 
 ## fmn gibbs sampler
 include("fmn_gibbs.jl")
+
+## benchmark guassian gibbs sampler
+include("gaussian_gibbs.jl")
 
 ## posterior predictives
 include("dpmixture_ppd.jl")
