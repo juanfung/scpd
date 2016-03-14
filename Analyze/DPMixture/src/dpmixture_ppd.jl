@@ -3,27 +3,35 @@
 type PosteriorPredictive
     grid::LinSpace{Float64}
     ate::Array{Float64}
+    tt::Array{Float64}
+    late::Array{Float64}
 end
 
 typealias PPD PosteriorPredictive
 
-PPD(;grid=linspace(-2,2,10), ate=zeros(10)) = PPD(grid, ate)
+PPD(;grid=linspace(-2,2,2), ate=zeros(2), tt=zeros(2), late=zeros(2)) = PPD(grid, ate, tt, late)
 
-## PPD for ATE_i at X = x, where i is in the Data
-## 1. for each m, get i's label and use corresponding parameters
-##    - essentially the Gibbs output PPD
-
-## PPD for ATE_new at X = x_new, for new observation
-function dpmixture_ate(out::GibbsOut, x_new::Array; gridN=100, log_ppd=true)
+function dpmixture_ppd(out::GibbsOut, x_new::Array, z_new::Array; gridN=100, log_ppd=true)
     
-    ## 1. construct grid of gridN points {ate = y1 - y0}
-    ##   - where y1 - y0 ~ N( (b1 - b0)'x_new, g2)
+    ## 1. ATE|x,param,Data ~ N( x^{T}(b_{1}-b_{0}), g_{2} ), g_{2}=\sigma_{1}^{2}+\sigma_{2}^{2}-\sigma_{1}\sigma_{2}
+    ## 2. TT|x,z,param,Data ~ [ p(ATE|x,param,Data)/Pr( N(0,1) < z^{T}bD) ]*[ Pr( N(0,1) < h(z) ) ]
+    ##    where h(z) = [ z^{T}bD + (g1/g2)( y1-y0 - x^{T}(b1-b0) ) ]/[ sqrt( 1 - g1^2/g2) ]
+    ##     and  g1 = \sigma_{1D} - \sigma_{0D}
+    ## 3. LATE|x,z,z',Data ~ [ p(ATE|x,param,Data)/[ Pr( N(0,1) < z'^{T}bD ) - Pr( N(0,1) < z^{T}bD ) ]*A
+    ##    where A = h(z') - h(z)
+    
+    ## Note:
+    ## can let x_new = index of x in z_new
+    ## then, x_new = sub(z_new, :, idx)
+    
+    ## TODO: define separate log/no log functions
     
     if log_ppd
         const ppdi = Distributions.logpdf
     else
-        const ppdi = Distributions.pdf
-    end
+        const ppdi = Distributions.pdf # NB: can take argument pdf(d, a:b) where a:b is a range
+        ##define: ppdi(d) = ppd(d, ate_grid); then call: ppdi(d)
+    end    
     
     ## constants
     const M = out.out_tuple.out_M
@@ -45,49 +53,67 @@ function dpmixture_ate(out::GibbsOut, x_new::Array; gridN=100, log_ppd=true)
     
     ate_out = zeros(gridN, M)
     
-    ## Then
-    ## 1. for each grid point i:
+    tt_out = zeros(gridN, M)
+    
+    late_out = zeros(gridN, M)
+    
+    ##hz = 0.0
     
     for i in 1:gridN
         
-        ## 2. for each MCMC draw m:
-        
         for m in 1:M
-            
-            ##   -  Sample theta_i (ie, label for i)
-            ##     -  where pr(theta_i = theta_new) = alpha[m] * F(ate_i | Theta_0)/(alpha[m]+N)
-            ##     -  and   pr(theta_i = theta_j) = nj * F(ate_i | Theta[j,m])/(alpha[m]+N),
-            ##        for j = 1,...,J[m]
-            ##   - compute p(ate_i | theta_i) = N( (b1_i - b0_i)'x_new, g2_i)
-            ##     -  where g2 = s1^2 + s2^2 - 2*s10
             
             alpha = out.out_tuple.out_dp.alpha_out[m]
             J = out.out_tuple.out_dp.J_out[m]
             w = zeros(J + 1)
+            h = zeros(J + 1)
             label = out.out_tuple.out_dp.label_out[:,m]
             njs = StatsBase.counts(label, 1:J)
             betas = out.out_tuple.out_theta.betas_out[m]
             Sigma = out.out_tuple.out_theta.Sigma_out[m]
             
             for j in 1:J
+                bD = betas[1:kz,j]
                 b1 = betas[kz+1:kz+kx,j]
                 b0 = betas[kz+kx+1:ktot,j]
-                s1 = sqrt(Sigma[2,2,j])
-                s0 = sqrt(Sigma[3,3,j])
-                s10 = Sigma[2,3,j]
+                
                 xb = dot(x_new, (b1 - b0))
+                zb = dot(z_new, bD)
+                
+                s1 = sqrt(Sigma[2,2,j])
+                s0 = sqrt(Sigma[3,3,j])                
+                s10 = Sigma[2,3,j]
                 g2 = sqrt(s1^2 + s0^2 - 2*s10)*sy
+                g1 = (Sigma[1,2,j] - Sigma[1,3,j])*sy # sig1D - sig0D
+                
+                ## ATE
                 w[j] = ppdi( Distributions.Normal( xb, g2 ), ate_grid[i] )
+                
+                ## TT
+                hz = ( zb + (g1/g2)*(ate_grid[i] - xb) )/sqrt( 1 - (g1^2)/g2 )
+                hz = Distributions.logcdf( Distributions.Normal(), hz )
+                h[j] = w[j] + hz - Distributions.logcdf( Distributions.Normal(), zb )
+                
             end
             
             ## draw from prior
             Sigma = NobileWishart(rho, rho*R)
             betas = rand( Distributions.MvNormal( beta_mu, beta_V ) )
-            b1 = betas[kz+1:kz+kx,j]
-            b0 = betas[kz+kx+1:ktot,j]
+            bD = betas[1:kz,:]
+            b1 = betas[kz+1:kz+kx,:]
+            b0 = betas[kz+kx+1:ktot,:]
             xb = dot(x_new, b1-b0)
+            zb = dot(z_new, bD)
             g2 = sqrt(Sigma[2,2] + Sigma[3,3] - 2*Sigma[2,3])*sy
+            g1 = (Sigma[1,2] - Sigma[1,3])*sy
+            
+            ## ATE
             w[J+1] = ppdi( Distributions.Normal( xb, g2) , ate_grid[i] )
+
+            ## TT
+            hz = ( zb + (g1/g2)*(ate_grid[i] - xb) )/sqrt( 1 - (g1^2)/g2 )
+            hz = Distributions.logcdf( Distributions.Normal(), hz )
+            h[J+1] = w[J+1] + hz - Distributions.logcdf( Distributions.Normal(), zb )
             
             ## compute Polya weights and sample component
             ##w_hat = exp(w)/(alpha + N);
@@ -97,18 +123,23 @@ function dpmixture_ate(out::GibbsOut, x_new::Array; gridN=100, log_ppd=true)
             
             ## compute ppd ATE at grid point i, for draw m
             ate_out[i,m] = ( sum(njs.*exp(w[1:J])) + alpha*exp(w[J+1]) )/(n + alpha) ##w[ji]
+
+            ## compute ppd TT at grid point i, for draw m
+            tt_out[i,m] = ( sum(njs.*exp(h[1:J])) + alpha*exp(h[J+1]) )/(n + alpha)
         end
     end
     
     ## 3. ppd(ate_i) = sum_m p(ate_i |theta_i) / M
     ate_out = sum(ate_out, 2)/M
+    tt_out = sum(tt_out, 2)/M
+    ##late_out = sum(late_out, 2)/M
     
-    return PPD(grid = ate_grid, ate = ate_out)
+    return PPD(grid = ate_grid, ate = ate_out, tt = tt_out, late = late_out)
     
 end
 
 ## function to plot ate ppd using Gadfly
-function plot_ate(ppd::PPD)
+function plot_ppd(ppd::PPD)
     ##Gadfly.plot(x=collect(ppd.grid), y=ppd.ate, Geom.line)
 end
 
@@ -175,11 +206,5 @@ function blocked_ate(out::GibbsOut, x_new::Array; gridN=100, log_ppd=true)
     ate_out = sum(ate_out, 2)/M
     
     return PPD(grid = ate_grid, ate = ate_out)
-    
-end
-
-
-## choose ATE, TTE, ITT, or LATE
-function dpmixture_ppd()
     
 end

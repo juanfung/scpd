@@ -1,5 +1,22 @@
 ## Set up to run/continue Gibbs sampler for DPMs, etc.
 
+## function to select sampler
+function set_sampler(model::ASCIIString)
+
+    if model == "dpm"
+        f = dpmixture_gibbs
+    elseif model == "blocked"
+        f = dpmixture_blocked
+    elseif model == "fmn"
+        f =  fmn_gibbs
+    elseif model == "gaussian"
+        f = gaussian_gibbs
+    end
+
+    return f
+
+end
+
 ## initialize sampler
 function dpmixture_init(data::DataTuple, prior::PriorTuple, param::ParamTuple)
     
@@ -42,7 +59,7 @@ function dpmixture_init(data::DataTuple, prior::PriorTuple, param::ParamTuple)
     kx = size(xmat, 2)
     kz = size(zmat, 2)
     ktot = 2*kx + kz
-
+    
     ## scale data?
     if true in scale_data
         if scale_data[1]
@@ -77,6 +94,7 @@ function dpmixture_init(data::DataTuple, prior::PriorTuple, param::ParamTuple)
     data_in = GibbsData(y=ys, d=d, d_l=lower, d_u=upper, xmat=xmats, zmat=zmats, Hmat=Hmat)
     
     ## 3. initialize sampler
+    if verbose println("Initializing sampler...") end
     dim_tup = DimTuple(n=n, kx=kx, kz=kz, ktot=ktot)
     
     constant_in = GibbsConstant(dim_tup, prior, param)        
@@ -108,92 +126,119 @@ function dpmixture_init(data::DataTuple, prior::PriorTuple, param::ParamTuple)
         const alpha = prior.prior_dp.alpha
         const eta = 0.0
     end
-    
-    betas = rand( MvNormal(prior.prior_beta.beta_mu, prior.prior_beta.beta_V), J) # 3 x J
-    
+
+    ## initialize betas
+    betas = rand( MvNormal(prior.prior_beta.beta_mu, prior.prior_beta.beta_V), J) # ktot x J
+
+    ## initialize Sigma (3 x 3 x J)
+    ## NB: if J=1, Sigma is (3 x 3)
     Sigma = NobileWishart(prior.prior_sigma.sigma_rho,
-                          prior.prior_sigma.sigma_rho*prior.prior_sigma.sigma_R, n=J) # 3 x 3 x J
-    
+                          prior.prior_sigma.sigma_rho*prior.prior_sigma.sigma_R, n=J)
+
+    ## collect data
     data_state = StateData(dstar=dstar, ymiss=zeros(n), y1=zeros(n), y0=zeros(n), yuse=yuse)
+
+    ## collect DP hyperparameters
+    if J == 1
+        dp_state = StateDP()
+    else       
+        dp_state = StateDP(J=J, alpha=alpha, label=label, eta=eta)
+    end
     
-    dp_state = StateDP(J=J, alpha=alpha, label=label, eta=eta)
-    
+    ## collect component hyperparameters
     theta_state = StateTheta(betas=betas, Sigma=Sigma)
-    
+
+    ## collect initial state
     state_in = GibbsState(state_data=data_state, state_dp=dp_state, state_theta=theta_state)
-    
+
+    ## collect init object
     init = GibbsInit(data_init=data_in,
                      constant_init=constant_in,
                      state_init=state_in)
+
+    if verbose println("Ready!") end
     
     return init
     
 end
 
 ## continue sampler, using last state as init
-function dpmixture_chain(out::GibbsOut)
-    
-    println("Continuing from last state...")
-    
+function dpmixture_chain(out::GibbsOut; model="dpm")
+
+    dpmixture_sampler = set_sampler(model)    
+       
     init = out.gibbs_init
-    chain_out = dpmixture_gibbs(init)
+    out = out.out_tuple
+
+    println("Continuing from last state...")
+    chain_out = dpmixture_sampler(init)
+    init = chain_out.gibbs_init
+    chain_out = chain_out.out_tuple
     
     ## append new out to old
     
     ## update current run and total iterations (1 through out_M)
-    ## NB: done in gibbs sampler
-    ##chain_out.out_tuple.out_M
-    new_M = chain_out.gibbs_init.state_init.batch_m 
-    out.out_tuple.out_M = new_M
+    new_M = init.state_init.batch_m 
+    out.out_M = new_M
     ## update batch
-    new_M = chain_out.gibbs_init.state_init.batch_m
+    ##new_M = chain_out.gibbs_init.state_init.batch_m
     
     ## update data
-    new_data = chain_out.out_tuple.out_data
-    out.out_tuple.out_data.dstar_out = hcat(out.out_tuple.out_data.dstar_out,
-                                            new_data.dstar_out)
-    out.out_tuple.out_data.dstar_out = hcat(out.out_tuple.out_data.dstar_out,
-                                            new_data.dstar_out)
-    out.out_tuple.out_data.ymiss_out = hcat(out.out_tuple.out_data.ymiss_out,
-                                            new_data.ymiss_out)
-    out.out_tuple.out_data.y1_out = hcat(out.out_tuple.out_data.y1_out,
-                                         new_data.y1_out)
-    out.out_tuple.out_data.y0_out = hcat(out.out_tuple.out_data.y0_out,
-                                         new_data.y0_out) 
-    out.out_tuple.out_data.y_out = hcat(out.out_tuple.out_data.y_out,
-                                        new_data.y_out)
+    out.out_data.dstar_out = hcat(out.out_data.dstar_out,
+                                  chain_out.out_data.dstar_out)
+    out.out_data.dstar_out = hcat(out.out_data.dstar_out,
+                                  chain_out.out_data.dstar_out)
+    out.out_data.ymiss_out = hcat(out.out_data.ymiss_out,
+                                  chain_out.out_data.ymiss_out)
+    out.out_data.y1_out = hcat(out.out_data.y1_out,
+                               chain_out.out_data.y1_out)
+    out.out_data.y0_out = hcat(out.out_data.y0_out,
+                               chain_out.out_data.y0_out) 
+    out.out_data.y_out = hcat(out.out_data.y_out,
+                              chain_out.out_data.y_out)
+    
+    chain_out.out_data = OutData() # clear memory
     
     ## update DP
-    new_dp = chain_out.out_tuple.out_dp
-    out.out_tuple.out_dp.J_out = vcat(out.out_tuple.out_dp.J_out,
-                                      new_dp.J_out)
-    out.out_tuple.out_dp.label_out = hcat(out.out_tuple.out_dp.label_out,
-                                          new_dp.label_out)    
-    out.out_tuple.out_dp.alpha_out = vcat(out.out_tuple.out_dp.alpha_out,
-                                          new_dp.alpha_out)
-    out.out_tuple.out_dp.eta_out = vcat(out.out_tuple.out_dp.eta_out,
-                                        new_dp.eta_out)    
+    out.out_dp.J_out = vcat(out.out_dp.J_out,
+                            chain_out.out_dp.J_out)
+    out.out_dp.label_out = hcat(out.out_dp.label_out,
+                                chain_out.out_dp.label_out)    
+    out.out_dp.alpha_out = vcat(out.out_dp.alpha_out,
+                                chain_out.out_dp.alpha_out)
+    out.out_dp.eta_out = vcat(out.out_dp.eta_out,
+                              chain_out.out_dp.eta_out)
+    
+    chain_out.out_dp = OutDP() # clear memory
     
     ## update theta
-    new_theta = chain_out.out_tuple.out_theta
-    out.out_tuple.out_theta.betas_out = vcat(out.out_tuple.out_theta.betas_out,
-                                             new_theta.betas_out)
-    out.out_tuple.out_theta.Sigma_out = vcat(out.out_tuple.out_theta.Sigma_out,
-                                             new_theta.Sigma_out)
+    out.out_theta.betas_out = vcat(out.out_theta.betas_out,
+                                   chain_out.out_theta.betas_out)
+    out.out_theta.Sigma_out = vcat(out.out_theta.Sigma_out,
+                                   chain_out.out_theta.Sigma_out)
+    
+    ##chain_out.out_theta = OutTheta() # clear memory
+    chain_out = 0
+    
+    out = GibbsOut( out_tuple = out, gibbs_init=init )
     
     return out
 
 end
 
 ## wrapper to call gibbs sampler
-function dpmixture{T<:GibbsType}(in::T)
+## Better(?):
+## function dpmixture(in::GibbsInit; model="dpm") dpmixture_sampler(in, model=model)
+## function dpmixture(in::GibbsOut; model="dpm") dpmixture_chain(in, model=model)
+function dpmixture{T<:GibbsType}(in::T; model="dpm")
     
     if typeof(in) == DPMixture.GibbsOut
         ## *CALL Gibbs and append new output to old
-        out = dpmixture_chain(in)
+        out = dpmixture_chain(in, model=model)
         ##out = dpmixture_dump(in) ## NB: separates output
     elseif typeof(in) == DPMixture.GibbsInit
-        out = dpmixture_gibbs(in)
+        dpmixture_sampler = set_sampler(model)
+        out = dpmixture_sampler(in)
     end
     
     return out

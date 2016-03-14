@@ -3,6 +3,7 @@
 ## flip rows 1,3 and columns 1,3 for 3x3 matrix
 function flip_mat(A::Array) flipdim(flipdim(A, 1), 2) end
 
+
 ## sample 3x3 A ~ IW(nu, V) with constraint A(1,1)=1
 function NobileWishart(nu::Int64, V::Array{Float64}; n=1)
     
@@ -33,6 +34,7 @@ function NobileWishart(nu::Int64, V::Array{Float64}; n=1)
 
 end
 
+
 ## sample truncated normals at 0, given d = {0, 1}
 function truncnorm(mu::Array, sigma::Array, d::Array)
     
@@ -48,31 +50,9 @@ function truncnorm(mu::Array, sigma::Array, d::Array)
     
 end
 
-## scale input data to have 0 mean and unit variance
-function scale_input(A::Array)
 
-    ## input: A (n x p)
-    
-    p = size(A, 2)
-    
-    if p > 1
-        L = squeeze( std(A, 1), 1)
-        L = diagm(L, 0) # p x p
-        mu = mapslices(a -> a - mean(a), A, 1) # n x p
-        B = L\mu' # p x n
-        B = B'
-    else
-        L = std(A)
-        mu = A - mean(A)
-        B = mu/L
-    end
-
-    return B
-
-end
-
-## center and scale data A
-function standardize(A::Array; B=2)
+## center and scale continuous data, A
+function standardize(A::Array{Float64}; B=2)
 
     ## inputs
     ## A (n x p) : data matrix
@@ -91,57 +71,16 @@ function standardize(A::Array; B=2)
     for k in 1:p
         if size(unique(A[:,k]), 1) <= B ##eltype(A[:,k]) <: Integer
             ##next
-            s[p] = 1
-            m[p] = 0
+            s[k] = 1.0
+            m[k] = 0.0            
+        else  
+            s[k] = std(A[:,k])
+            m[k] = mean(A[:,k])            
         end
-        s[p] = std(A[:,k])
-        m[p] = mean(A[:,k])
-        a[:,p] = (A[:,k] - m[p])/s[p]
+        a[:,k] = (A[:,k] - m[k])/s[k]
     end
     
     return ScaleData(a=a, m=m, s=s)
-    
-end
-
-
-## re-scale coefficients
-function scale_beta(A::Array{Float64}, my::Float64, sy::Float64, mx::Float64, sx::Float64)
-
-    ## input
-    ## A (n x p): original data
-    ## betas:
-    ## Sigma:
-    b = zeros(size(A))
-    b[1] = sy*(A[1] + my - A[2]*mx/sx)
-    b[2] = A[2]*sy/sx
-
-    return b
-    
-end
-
-
-## re-scale coefficients, redux
-function rescale_beta(beta::Array{Float64}, xs::ScaleData, ys::ScaleData)
-
-    x = xs.a
-    mx = xs.m
-    sx = xs.s
-
-    y = ys.a
-    my = ys.m[1]
-    sy = ys.s[1]
-    
-    p = size(beta, 2)
-
-    b = zeros(size(beta))
-    
-    ##b[1] = sy*( beta[1] + my - sum(beta[2:p].*mx[2:p]./sx[2:p]) ) # NB: mx[1]=0
-    b[1] = sy*( beta[1] + my - dot( beta, mx./sx ) )
-    for k in 2:p
-        b[k] = beta[k]*sy/sx[k]
-    end    
-    
-    return b
     
 end
 
@@ -174,3 +113,24 @@ function rescale_output(out::GibbsOut)
     return out
     
 end
+
+
+## sample DP concentration parameter a la Escobar and West (1994)
+function sample_alpha(alpha::Float64, J::Int64; n::Int64=100, shape::Float64=1.0, rate::Float64=1.0)
+
+    ## sample auxiliary variable
+    eta = rand( Distributions.Beta(alpha+1, n) )
+
+    ## update shape and rate parameters
+    b_star = rate - log(eta)
+    A = (shape + J - 1)/(n*b_star)
+    pi_eta = A/(1 + A)
+    a_star = ifelse(pi_eta > 0.5, shape + J, shape + J - 1)
+    
+    ## sample alpha
+    alpha = rand( Distributions.Gamma(a_star, 1/b_star) )
+
+    return alpha, eta
+
+end
+
