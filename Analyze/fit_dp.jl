@@ -3,7 +3,7 @@
 ## --------------------------------------------------------------------------- #
 
 ## load packages
-using JLD, Gadfly, Lint, ProfileView
+using Gadfly, Lint, ProfileView
 ##using TypeCheck
 
 ## load DP mixture module (packages, functions, etc.)
@@ -83,6 +83,11 @@ kx = size(mm_y, 2)
 kz = size(mm_d, 2)
 ktot = 2kx + kz
 
+alpha = 1.0
+J = 20
+alpha_shape = 1.0
+alpha_rate = 1.0
+
 beta_mu = zeros(ktot);
 beta_nu = 10
 beta_V = beta_nu*eye(ktot);
@@ -93,7 +98,7 @@ R = eye(3)
 ## parameter settings
 M = 1000
 
-prior_dp = DPMixture.PriorDP(alpha=1, J=20);
+prior_dp = DPMixture.PriorDP(alpha=alpha, J=J, alpha_shape=alpha_shape, alpha_rate=alpha_rate);
 prior_beta = DPMixture.PriorBeta(beta_mu=beta_mu, beta_V=beta_V, beta_nu=beta_nu);
 prior_sigma = DPMixture.PriorSigma(sigma_rho=rho, sigma_R=R);
 
@@ -104,9 +109,10 @@ data = DPMixture.DataTuple(y_form, d_form, df);
 
 ## --------------------------------------------------------------------------- #
 ## seed random number generator
-srand(482016)
+srand(12981)
 
 ## init JIT
+## TODO: init JIT with fake data
 param = DPMixture.ParamTuple( M=1, scale_data=(true,true) )
 
 @time out = DPMixture.dpmixture_init( data, prior, param );
@@ -132,17 +138,19 @@ JLD.jldopen("./Data/out.jld", "w") do file
 end
 
 @printf("First M = %d iterations complete and saved!", M+1)
+##m_out = out.out_tuple.out_M
+##@printf("First M = %d iterations complete and saved!", m_out)
 
 ## --------------------------------------------------------------------------- #
 
 ## can later reload and continue chain:
 
 ## 1. reload:
-##init = load("out.jld", "init")
-##gibbs_out = load("./out.jld", "gibbs_out")
+##out = load("out.jld", "out");
+##out = load("./Data/out.jld", "out");
 
 ## 2. continue chain:
-##@time gibbs_out = DPMixture.dpmixture(gibbs_out);
+##@time out = DPMixture.dpmixture(out);
 
 ## 3. clear memory, if necessary:
-##@time gibbs_out = DPMixture.dpmixture_dump(gibbs_out, fname="out_x19");
+##@time out = DPMixture.dpmixture_dump(out, fname="out_x19");
