@@ -3,7 +3,7 @@
 ## --------------------------------------------------------------------------- #
 
 ## load packages
-using Gadfly, Lint, ProfileView
+using JLD, Gadfly, Lint, ProfileView
 ##using TypeCheck
 
 ## load DP mixture module (packages, functions, etc.)
@@ -89,7 +89,7 @@ alpha_shape = 0.0
 alpha_rate = 0.0
 
 beta_mu = zeros(ktot);
-beta_nu = 100
+beta_nu = 10
 beta_V = beta_nu*eye(ktot);
 
 rho = 10
@@ -133,7 +133,6 @@ out.gibbs_init.constant_init.param.M = M
 ## save output
 JLD.jldopen("./Data/gaussian/out.jld", "w") do file
     addrequire(file, DPMixture)
-    ##write(file, "init", init, "gibbs_out", gibbs_out)
     write(file, "out", out)
 end
 
@@ -146,11 +145,11 @@ end
 ## can later reload and continue chain:
 
 ## 1. reload:
-##out = load("out.jld", "out");
-##out = load("./Data/out.jld", "out");
+##out = load("./Data/gaussian/out.jld", "out");
 
 ## 2. continue chain:
-##@time out = DPMixture.dpmixture(out);
+##@time out = DPMixture.dpmixture(out, model="gaussian");
 
 ## 3. clear memory, if necessary:
 ##@time out = DPMixture.dpmixture_dump(out, fname="out_x19");
+##@time out = DPMixture.dpmixture_dump(out, fname="./Data/gaussian/out", model="gaussian");
