@@ -85,7 +85,7 @@
     ## begin the sampler
     if verbose @printf("Batch %d\nBegin sampler...", batch_n) end
     
-    for m in 1:M
+    @inbounds for m in 1:M
         
         ## 1. update parameters
         if verbose && floor(M/m) == M/m
@@ -117,17 +117,17 @@
         
         covmatpart = xmatpart*Hmat + beta_VInv # Ktot x Ktot
         
-        ##covmatpart = covmatpart\I_K # Ktot x Ktot
+        covmatpart = covmatpart\I_K # Ktot x Ktot
         ## better approach?
-        covmatpart = cholfact(Symmetric(covmatpart, :U))
+        ##covmatpart = cholfact(Symmetric(covmatpart, :U))
         
         ymatpart = xmatpart*yusei # Ktot x 1
         
-        ##meanpart = covmatpart*(ymatpart + priorpart) # Ktot x 1
-        meanpart = covmatpart\(ymatpart + priorpart)
+        meanpart = covmatpart*(ymatpart + priorpart) # Ktot x 1
+        ##meanpart = covmatpart\(ymatpart + priorpart)
         
-        ##betas = meanpart + chol(covmatpart)'*randn(ktot)
-        betas = meanpart + (covmatpart[:U]\spI_K)*randn(ktot)
+        betas = meanpart + chol(covmatpart)'*randn(ktot)
+        ##betas = meanpart + (covmatpart[:U]\spI_K)*randn(ktot)
         ##betas = rand(MvNormal(meanpart, covmatpart))
         
         ## 2. draw latent data through data augmentation        
