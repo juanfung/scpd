@@ -31,7 +31,11 @@
     const beta_nu = beta_prior.beta_nu
     const beta_V = beta_prior.beta_V
     I_K = eye(ktot)
-    beta_VInv = beta_V\I_K
+    spI_K = speye(ktot)
+    
+    ##beta_VInv = beta_V\I_K
+    beta_VInv = \(sparse(beta_V), spI_K)
+    
     priorpart = *(beta_VInv, beta_mu)
     
     const sigma_prior = init.constant_init.prior.prior_sigma
@@ -53,6 +57,10 @@
     
     chain_state = state.chain
     
+    batch_n = state.batch_n
+    
+    batch_m = state.batch_m
+    
     ## init latent data
     data_state = state.state_data
     
@@ -69,88 +77,22 @@
     Sigma = theta_state.Sigma
     I_3 = eye(3)
     SigmaInv = Sigma\I_3
+
+    zth = zmat*betas[1:kz,:] # n x 1
+    xb1 = xmat*betas[(kz+1):(kz+kx),:] # n x 1
+    xb0 = xmat*betas[(kz+kx+1):ktot,:] # n x 1    
     
     ## begin the sampler
-    if verbose @printf("Begin sampler...") end
+    if verbose @printf("Batch %d\nBegin sampler...", batch_n) end
     
-    for m in 1:M        
+    for m in 1:M
         
-        ## 1. extract coefficients
-        betaD = betas[1:kz,:]
-        beta1 = betas[(kz+1):(kz+kx),:]
-        beta0 = betas[(kz+kx+1):ktot,:]
-        
-        sig1 = sqrt(Sigma[2,2])
-        sig0 = sqrt(Sigma[3,3])
-        sig1D = Sigma[1,2]
-        sig0D = Sigma[1,3]
-        sig10 = Sigma[2,3]
-
-        ## 2. update latent data and component parameters
+        ## 1. update parameters
         if verbose && floor(M/m) == M/m
-            @printf("\nIteration: %d\nUpdating data and parameters...", m)
+            @printf("\nIteration: %d\nUpdating parameters...", m+batch_m)
         end
         
-        zth = zmat*betaD # n x 1
-        xb1 = xmat*beta1 # n x 1
-        xb0 = xmat*beta0 # n x 1
-        
-        denom1 = (sig1)^2 - (sig1D)^2
-        denom0 = (sig0)^2 - (sig0D)^2
-        mid = (sig10)*(sig0D)*(sig1D)
-        
-        ## 2a. draw missing outcomes
-        
-        mu1 = xb1 +
-        (dstar - zth)*( ( (sig0)^2*(sig1D) - (sig10)*(sig0D) )/denom0 ) +
-        (y - xb0)*( ( (sig10) - (sig0D)*(sig1D) )/denom0 )
-        
-        mu0 = xb0 +
-        (dstar - zth)*( ( (sig1)^2*(sig0D) - (sig10)*(sig1D) )/denom1 ) +
-        (y - xb1)*( ( (sig10) - (sig0D)*(sig1D) )/denom1 )
-        
-        omega1 = (sig1)^2 -
-        ( ( (sig1D)^2*(sig0)^2 - 2*mid + (sig10)^2 )/denom0 )
-        
-        omega0 = (sig0)^2 -
-        ( ( (sig0D)^2*(sig1)^2 - 2*mid + (sig10)^2 )/denom1 )
-        
-        mu_miss = (1 .- d).*mu1 + d.*mu0
-        
-        var_miss = (1 .- d)*omega1 + d*omega0
-        
-        ymiss = mu_miss + sqrt(var_miss).*randn(n)
-        ##ymiss = rand(Normal(mu_miss, sqrt(var_miss)), n)
-        
-        ## 2b. draw latent data
-        
-        denomd = (sig1^2)*(sig0^2) - (sig10^2)
-        
-        y1 = d.*y + (1 .- d).*ymiss
-        y0 = d.*ymiss + (1 .- d).*y
-        
-        sd1 = ( ( (sig0)^2*(sig1D) - (sig10)*(sig0D) )/denomd )
-        sd0 = ( ( (sig1)^2*(sig0D) - (sig10)*(sig1D) )/denomd )
-        
-        mu_d = zth + (y1 - xb1)*sd1 + (y0 - xb0)*sd0
-        
-        omega_d = 1 -
-        ( ( (sig1D)^2*(sig0)^2 - 2*mid + (sig0D)^2*(sig1)^2 )/denomd )
-        
-        @bp omega_d < 0
-        
-        ##for i in 1:n
-        ##    dstar[i] = rand(TruncatedNormal(mu_d[i],
-        ##                                    sqrt(omega_d),
-        ##                                    lower[i],
-        ##                                    upper[i]) )
-        ##end
-        dstar = truncnorm(mu_d, sqrt(omega_d)*ones(n), d) # or repmat([sqrt(omega_d)], n)
-        
-        @bp count(ds -> ds==Inf, dstar) > 0            
-        
-        ## 2c. draw error covariance matrix
-        
+        ## 1a. draw covariance matrix
         eD = dstar - zth # n x 1
         e1 = y1 - xb1 # n x 1
         e0 = y0 - xb0 # n x 1
@@ -165,9 +107,9 @@
         ## Debugging with true Sigma
         ##Sigma = SigmaTrue
         
-        ## 2d. draw coefficient vectors
+        ## 1b. draw coefficient vectors
         
-        yuse = vcat(dstar, y1, y0) # 3n x 1
+        yusei = vcat(dstar, y1, y0) # 3n x 1
         
         sigXi = kron( SigmaInv, speye(n) ) # 3n x 3n
         
@@ -175,21 +117,86 @@
         
         covmatpart = xmatpart*Hmat + beta_VInv # Ktot x Ktot
         
-        covmatpart = covmatpart\I_K # Ktot x Ktot
+        ##covmatpart = covmatpart\I_K # Ktot x Ktot
         ## better approach?
+        covmatpart = cholfact(Symmetric(covmatpart, :U))
         
-        ymatpart = xmatpart*yuse # Ktot x 1
+        ymatpart = xmatpart*yusei # Ktot x 1
         
-        meanpart = covmatpart*(ymatpart + priorpart) # Ktot x 1
+        ##meanpart = covmatpart*(ymatpart + priorpart) # Ktot x 1
+        meanpart = covmatpart\(ymatpart + priorpart)
         
-        betas = meanpart + chol(covmatpart)'*randn(ktot)
+        ##betas = meanpart + chol(covmatpart)'*randn(ktot)
+        betas = meanpart + (covmatpart[:U]\spI_K)*randn(ktot)
         ##betas = rand(MvNormal(meanpart, covmatpart))
         
-        ## 2e. store agumented data
-        ##yuse[1,:] = dstar
-        ##yuse[2,:] = y1
-        ##yuse[3,:] = y0
-
+        ## 2. draw latent data through data augmentation        
+        if verbose && floor(M/m) == M/m @printf("\nUpdating latent data...") end
+        
+        ## 2a. extract coefficients
+        zth = zmat*betas[1:kz,:] # n x 1
+        xb1 = xmat*betas[(kz+1):(kz+kx),:] # n x 1
+        xb0 = xmat*betas[(kz+kx+1):ktot,:] # n x 1        
+        
+        sig1 = Sigma[2,2]
+        sig0 = Sigma[3,3]
+        sig1D = Sigma[1,2]
+        sig0D = Sigma[1,3]
+        sig10 = Sigma[2,3]
+        
+        denom1 = (sig1) - (sig1D^2)
+        denom0 = (sig0) - (sig0D^2)
+        mid = (sig10)*(sig0D)*(sig1D)
+        
+        ## 2b. draw missing outcomes
+        
+        mu1 = xb1 +
+        (dstar - zth)*( ( (sig0)*(sig1D) - (sig10)*(sig0D) )/denom0 ) +
+        (y - xb0)*( ( (sig10) - (sig0D)*(sig1D) )/denom0 )
+        
+        mu0 = xb0 +
+        (dstar - zth)*( ( (sig1)*(sig0D) - (sig10)*(sig1D) )/denom1 ) +
+        (y - xb1)*( ( (sig10) - (sig0D)*(sig1D) )/denom1 )
+        
+        omega1 = (sig1) - ( ( (sig1D^2)*(sig0) - 2*mid + (sig10^2) )/denom0 )
+        
+        omega0 = (sig0) - ( ( (sig0D^2)*(sig1) - 2*mid + (sig10^2) )/denom1 )
+        
+        mu_miss = (1 .- d).*mu1 + d.*mu0
+        
+        var_miss = (1 .- d)*omega1 + d*omega0
+        
+        ymiss = mu_miss + sqrt(var_miss).*randn(n)
+        ##ymiss = rand(Normal(mu_miss, sqrt(var_miss)), n)
+        
+        ## 2c. draw selection outcome
+        
+        denomd = (sig1)*(sig0) - (sig10^2)
+        
+        y1 = d.*y + (1 .- d).*ymiss
+        y0 = d.*ymiss + (1 .- d).*y
+        
+        sd1 = ( ( (sig0)*(sig1D) - (sig10)*(sig0D) )/denomd )
+        sd0 = ( ( (sig1)*(sig0D) - (sig10)*(sig1D) )/denomd )
+        
+        mu_d = zth + (y1 - xb1)*sd1 + (y0 - xb0)*sd0
+        
+        omega_d = 1 - ( ( (sig1D^2)*(sig0) - 2*mid + (sig0D^2)*(sig1) )/denomd )
+        
+        @bp omega_d < 0
+        
+        for i in 1:n
+            dstar[i] = rand(TruncatedNormal(mu_d[i], sqrt(omega_d), lower[i], upper[i]) )
+        end
+        ##dstar = truncnorm(mu_d, sqrt(omega_d)*ones(n), d) # or repmat([sqrt(omega_d)], n)
+        
+        @bp count(ds -> ds==Inf, dstar) > 0
+        
+        ## 2d. store agumented data
+        yuse[1,:] = dstar
+        yuse[2,:] = y1
+        yuse[3,:] = y0        
+        
         ## 3. save iteration m draws
         if verbose && floor(M/m) == M/m @printf("\nDone!") end
         
@@ -202,7 +209,7 @@
         ##@bp data_out.y_out[:,m] != mean(y)
         
         ## save component parameters
-        theta_out.betas_out[m] = betas
+        theta_out.betas_out[m] = reshape(betas, ktot, 1)
         theta_out.Sigma_out[m] = Sigma
         
     end
@@ -210,20 +217,22 @@
     if verbose @printf("\nSampler run complete.\n") end
     
     ## collect output
+    M_out = M + batch_m
     out = OutTuple(out_M=M, out_data=data_out, out_dp=OutDP(), out_theta=theta_out)
     
-    data_state = StateData(dstar=dstar, ymiss=ymiss, y1=y1, y0=y0, yuse=yuse)
+    data_state = StateData(dstar=vec(dstar), ymiss=vec(ymiss), y1=vec(y1), y0=vec(y0), yuse=yuse)
     theta_state = StateTheta(betas=betas, Sigma=Sigma)
     chain_state = true
     
     init.state_init = GibbsState(state_data=data_state,
                                  state_dp=StateDP(),
                                  state_theta=theta_state,
-                                 chain=chain_state)
+                                 chain=chain_state,
+                                 batch_n=batch_n,
+                                 batch_m=M_out)
     
     gibbs_out = GibbsOut(out, init)
     
     return gibbs_out
 
 end
-
