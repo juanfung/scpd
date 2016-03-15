@@ -247,7 +247,7 @@ end
 
 ## save output to disk and collect garbage
 ## return last state to continue sampler
-function dpmixture_dump(out::GibbsOut; fname="out")
+function dpmixture_dump(out::GibbsOut; fname="out", model="dpm")
     
     ## save current state
     init = out.gibbs_init
@@ -277,7 +277,7 @@ function dpmixture_dump(out::GibbsOut; fname="out")
     
     ## continue chain
     ## NB: automatically inherits state chain=true
-    out = dpmixture(init)
+    out = dpmixture(init, model=model)
     
     ## update runs as (out_m out of out_M)    
     out.out_tuple.out_M += old_M
