@@ -85,6 +85,32 @@ function standardize(A::Array{Float64}; B=2)
 end
 
 
+## re-scale coefficients, redux
+function rescale_beta(beta::Array{Float64}, xs::ScaleData, ys::ScaleData)
+
+    x = xs.a
+    mx = xs.m
+    sx = xs.s
+
+    y = ys.a
+    my = ys.m[1]
+    sy = ys.s[1]
+    
+    p = size(beta, 2)
+
+    b = zeros(size(beta))
+    
+    ##b[1] = sy*( beta[1] + my - sum(beta[2:p].*mx[2:p]./sx[2:p]) ) # NB: mx[1]=0
+    b[1] = sy*( beta[1] + my - dot( beta, mx./sx ) )
+    for k in 2:p
+        b[k] = beta[k]*sy/sx[k]
+    end    
+    
+    return b
+    
+end
+
+
 ## rescale MCMC output
 function rescale_output(out::GibbsOut)
     
@@ -105,7 +131,7 @@ function rescale_output(out::GibbsOut)
             bD = rescale_beta(betas[1:kz,j], zs, ys)
             b1 = rescale_beta(betas[kz+1:kz+kx,j], xs, ys)
             b0 = rescale_beta(betas[kz+kx+1:ktot,j], xs, ys)  
-            betas[:,j] = [bD, b1, b0]
+            betas[:,j] = vcat(bD, b1, b0)
         end
         out.out_tuple.out_theta.betas_out[m] = betas
     end
@@ -116,6 +142,7 @@ end
 
 
 ## sample DP concentration parameter a la Escobar and West (1994)
+## TODO: change signature to (dp_state::StateDP, dp_prior::PriorDP; n::Int64=100)
 function sample_alpha(alpha::Float64, J::Int64; n::Int64=100, shape::Float64=1.0, rate::Float64=1.0)
 
     ## sample auxiliary variable
