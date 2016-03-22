@@ -11,7 +11,7 @@ typealias PPD PosteriorPredictive
 
 PPD(;grid=linspace(-2,2,2), ate=zeros(2), tt=zeros(2), late=zeros(2)) = PPD(grid, ate, tt, late)
 
-function dpmixture_lppd(out::GibbsOut, x_new::Array{Float64,1}, z_new::Array{Float64,1}; gridN=100)
+function dpmixture_lppd(out::GibbsOut, x_new::Array{Float64,1}, z_new::Array{Float64,1}; gridN=100, sums=true)
     
     ## 1. ATE|x,param,Data ~ N( x^{T}(b_{1}-b_{0}), g_{2} ), g_{2}=\sigma_{1}^{2}+\sigma_{2}^{2}-\sigma_{1}\sigma_{2}
     ## 2. TT|x,z,param,Data ~ [ p(ATE|x,param,Data)/Pr( N(0,1) < z^{T}bD) ]*[ Pr( N(0,1) < h(z) ) ]
@@ -128,11 +128,13 @@ function dpmixture_lppd(out::GibbsOut, x_new::Array{Float64,1}, z_new::Array{Flo
             
         end
     end
-    
-    ## 3. ppd(ate_i) = sum_m p(ate_i |theta_i) / M
-    ate_out = sum(ate_out, 2)/M
-    tt_out = sum(tt_out, 2)/M
-    late_out = sum(late_out, 2)/M
+
+    if sums
+        ## 3. ppd(ate_i) = sum_m p(ate_i |theta_i) / M
+        ate_out = sum(ate_out, 2)/M
+        tt_out = sum(tt_out, 2)/M
+        late_out = sum(late_out, 2)/M
+    end
     
     return PPD(grid = ate_grid, ate = ate_out, tt = tt_out, late = late_out)
     
