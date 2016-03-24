@@ -37,7 +37,12 @@ function dpmixture_init(data::DataTuple, prior::PriorTuple, param::ParamTuple)
         println("M = ", M)
         println("scale data = ", scale_data)
         println("verbose = ", verbose)
-    end   
+    end
+
+    const beta_mu = prior.prior_beta.beta_mu
+    const beta_V = prior.prior_beta.beta_V
+    const rho = prior.prior_sigma.sigma_rho*prior.prior_sigma.sigma_rho
+    const R = prior.prior_sigma.sigma_rho*prior.prior_sigma.sigma_R
     
     ## 2. get data -> model matrix
     ##    - optional: scale data
@@ -126,15 +131,22 @@ function dpmixture_init(data::DataTuple, prior::PriorTuple, param::ParamTuple)
         const alpha = prior.prior_dp.alpha
         const eta = 0.0
     end
-
+    
     ## initialize betas
-    betas = rand( MvNormal(prior.prior_beta.beta_mu, prior.prior_beta.beta_V), J) # ktot x J
-
+    betas = rand( MvNormal(beta_mu, beta_V), J) # ktot x J
+    
     ## initialize Sigma (3 x 3 x J)
     ## NB: if J=1, Sigma is (3 x 3)
-    Sigma = NobileWishart(prior.prior_sigma.sigma_rho,
-                          prior.prior_sigma.sigma_rho*prior.prior_sigma.sigma_R, n=J)
-
+    Sigma = NobileWishart(rho, rho*R, n=J)
+    
+    ## OR, as Array of Arrays:
+    ##betas = Array(Array{Float64,1},0)
+    ##Sigma = Array(Array{Float64,2},0)
+    ##for j in 1:J
+    ##    push!(betas, rand( MvNormal(beta_mu, beta_V) ) )
+    ##    push!(Sigma, NobileWishart(rho, rho*R))
+    ##end
+    
     ## collect data
     data_state = StateData(dstar=dstar, ymiss=zeros(n), y1=zeros(n), y0=zeros(n), yuse=yuse)
 
@@ -177,15 +189,13 @@ function dpmixture_chain(out::GibbsOut; model="dpm")
     
     ## append new out to old
     
-    ## update current run and total iterations (1 through out_M)
+    ## update current number of iterations (old out_M + new out_M)
     new_M = init.state_init.batch_m 
-    out.out_M = new_M
+    out.out_M += chain_out.out_M
     ## update batch
     ##new_M = chain_out.gibbs_init.state_init.batch_m
     
     ## update data
-    out.out_data.dstar_out = hcat(out.out_data.dstar_out,
-                                  chain_out.out_data.dstar_out)
     out.out_data.dstar_out = hcat(out.out_data.dstar_out,
                                   chain_out.out_data.dstar_out)
     out.out_data.ymiss_out = hcat(out.out_data.ymiss_out,
@@ -252,9 +262,11 @@ function dpmixture_dump(out::GibbsOut; fname="out", model="dpm")
     ## save current state
     init = out.gibbs_init
     
-    ## current number of iterations
-    old_M = out.out_tuple.out_M
-    out.gibbs_init.state_init.batch_m = old_M
+    ## current batch total iterations
+    ## total iterations
+    ##old_M = out.out_tuple.out_M
+    ##out.gibbs_init.state_init.batch_m = old_M
+    old_M = init.state_init.batch_m
     
     ## current "batch" number
     batch_n = out.gibbs_init.state_init.batch_n
@@ -280,7 +292,8 @@ function dpmixture_dump(out::GibbsOut; fname="out", model="dpm")
     out = dpmixture(init, model=model)
     
     ## update runs as (out_m out of out_M)    
-    out.out_tuple.out_M += old_M
+    ##out.out_tuple.out_M += old_M
+    ##init.state_init.batch_m += old_M
     
     return out
 

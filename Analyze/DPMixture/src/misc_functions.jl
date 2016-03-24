@@ -96,8 +96,8 @@ function rescale_beta(beta::Array{Float64}, xs::ScaleData, ys::ScaleData)
     my = ys.m[1]
     sy = ys.s[1]
     
-    p = size(beta, 2)
-
+    p = size(beta, 1)
+    
     b = zeros(size(beta))
     
     ##b[1] = sy*( beta[1] + my - sum(beta[2:p].*mx[2:p]./sx[2:p]) ) # NB: mx[1]=0
@@ -114,14 +114,18 @@ end
 ## rescale MCMC output
 function rescale_output(out::GibbsOut)
     
-    ys = out.gibbs_init.data_init.y
-    xs = out.gibbs_init.data_init.xmat
-    zs = out.gibbs_init.data_init.zmat
+    const ys = out.gibbs_init.data_init.y    
+    const xs = out.gibbs_init.data_init.xmat
+    const zs = out.gibbs_init.data_init.zmat
     
-    M = out.out_tuple.out_M
-    kx = out.gibbs_init.constant_init.dim.kx
-    kz = out.gibbs_init.constant_init.dim.kz
-    ktot = 2kx + kz
+    const M = out.out_tuple.out_M    
+    const kx = out.gibbs_init.constant_init.dim.kx
+    const kz = out.gibbs_init.constant_init.dim.kz
+    const ktot = 2kx + kz
+
+    ## scale by sy
+    sy = fill(ys.s[1]^2, 3, 3)
+    sy[1,1] = 1.0
     
     for m in 1:M
         J = out.out_tuple.out_dp.J_out[m]
@@ -134,6 +138,9 @@ function rescale_output(out::GibbsOut)
             betas[:,j] = vcat(bD, b1, b0)
         end
         out.out_tuple.out_theta.betas_out[m] = betas
+        ##out.out_tuple.out_theta.Sigma_out[m] *= sy^2
+        ##scale!(out.out_tuple.out_theta.Sigma_out[m], sy^2)
+        out.out_tuple.out_theta.Sigma_out[m] .*= sy
     end
     
     return out

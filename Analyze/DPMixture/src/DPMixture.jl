@@ -141,10 +141,11 @@ type StateSampler
     chain::Bool
     batch_n::Int64
     batch_m::Int64
+    bath_1::Int64
     ##rng::AbstractRNG
 end
 
-StateSampler(; chain=false, batch_n=1, batch_m=0) = StateSampler(chain, batch_n, batch_m)
+StateSampler(; chain=false, batch_n=1, batch_m=0, batch_1=0) = StateSampler(chain, batch_n, batch_m, batch_1)
 
 ## collect current state
 type GibbsState
@@ -154,12 +155,13 @@ type GibbsState
     chain::Bool
     batch_n::Int64
     batch_m::Int64
+    batch_1::Int64
 end
 
 ## default constructor
 GibbsState(; state_data=StateData(), state_dp=StateDP(), state_theta=StateTheta(),
-           chain=false, batch_n=1, batch_m=0) = GibbsState(state_data, state_dp, state_theta,
-                                                           chain, batch_n, batch_m)
+           chain=false, batch_n=1, batch_m=0, batch_1=0) = GibbsState(state_data, state_dp, state_theta,
+                                                           chain, batch_n, batch_m, batch_1)
 
 ## --------------------------------------------------------------------------- #
 ## Parameters and constants
@@ -218,7 +220,7 @@ OutDP(; J_out=Array(Int64,0),
 
 ## component parameters (variable size)
 type OutTheta <: OutputType
-    betas_out::Array{Array{Float64,2},1}    
+    betas_out::Array{Array{Float64,2},1}
     Sigma_out::Union{Array{Array{Float64,2},1},Array{Array{Float64,3},1}}
 end
 
@@ -282,7 +284,7 @@ export ScaleData
 ## export functions
 export flip_mat, NobileWishart, truncnorm, standardize, rescale_output, scale_input, rescale_beta
 export dpmixture_init, dpmixture_chain, dpmixture_gibbs, dpmixture_blocked, dpmixture_dump, dpmixture
-export dpmixture_ppd
+export dpmixture_lppd
 export dpmixture_fgibbs, sample_alpha, remove_component, shift_label, sample_label
 export fmn_gibbs # FMN model
 export gaussian_gibbs # Gaussian model

@@ -117,13 +117,11 @@ function dpmixture_gibbs(init::GibbsInit)
             ## REMOVE EMPTY COMPONENT!
             if njs[ji] == 0
                 ## remove component parameters
-                ##Sigma = Sigma[:,:,1:J.!=ji]
-                ##SigmaInv = SigmaInv[:,:,1:J.!=ji]
                 Sigma = Sigma[:,:,vcat(1:ji-1, ji+1:J)]
                 SigmaInv = SigmaInv[:,:,vcat(1:ji-1, ji+1:J)]                
                 betas = betas[:,vcat(1:ji-1, ji+1:J)]
                 njs = deleteat!(njs, ji)
-                ## shift labels                
+                ## shift labels
                 label[label .> ji] = label[label .> ji] - 1
                 J = J - 1
             end
@@ -312,6 +310,7 @@ function dpmixture_gibbs(init::GibbsInit)
             ## 2d. draw coefficient vectors
             
             yusej = vcat(dstarj, y1j, y0j) # 3nj x 1
+            ##yusej = dstarj; append!(yusej, y1j); append!(yusej, y0j)
             
             sigXi = kron( SigmaInv_j, speye(nj) ) # 3nj x 3nj
             
@@ -319,13 +318,16 @@ function dpmixture_gibbs(init::GibbsInit)
             
             covmatpart = xmatpart*Hj + beta_VInv # ktot x ktot
             
-            covmatpart = cholfact(Symmetric(covmatpart, :U)) # use Upper triangle of covmatpart  # ktot x ktot
+            ##covmatpart = cholfact(Symmetric(covmatpart, :U)) # use Upper triangle of covmatpart  # ktot x ktot
+            covmatpart = covmatpart\I_K # ktot x ktot
             
             ymatpart = xmatpart*yusej # ktot x 1
             
-            meanpart = covmatpart\(ymatpart + priorpart) # ktot x 1
+            ##meanpart = covmatpart\(ymatpart + priorpart) # ktot x 1
+            meanpart = covmatpart*(ymatpart + priorpart) # ktot x 1
             
-            betas_j = meanpart + (covmatpart[:U]\spI_K)*randn(ktot)            
+            ##betas_j = meanpart + (covmatpart[:U]\spI_K)*randn(ktot)
+            betas_j = meanpart + chol(covmatpart)'*randn(ktot)
             betas[:,j] = betas_j
             
         end
@@ -343,14 +345,15 @@ function dpmixture_gibbs(init::GibbsInit)
             if verbose && floor(M/m) == M/m @printf("\nUpdating alpha...") end
 
             ## sample auxiliary variable
-            eta = rand( Beta(alpha+1, n) )
-            b_star = alpha_b - log(eta)
-            A = (alpha_a + J - 1)/(n*b_star)
-            pi_eta = A/(1 + A)
-            a_star = ifelse(pi_eta > 0.5, alpha_a + J, alpha_a + J - 1)
+            ##eta = rand( Beta(alpha+1, n) )
+            ##b_star = alpha_b - log(eta)
+            ##A = (alpha_a + J - 1)/(n*b_star)
+            ##pi_eta = A/(1 + A)
+            ##a_star = ifelse(pi_eta > 0.5, alpha_a + J, alpha_a + J - 1)
             
             ## sample alpha
-            alpha = rand( Gamma(a_star, 1/b_star) )
+            ##alpha = rand( Gamma(a_star, 1/b_star) )
+            alpha, eta = sample_alpha(alpha, J, n=n, shape=alpha_a, rate=alpha_b)
             zdenom = alpha + n - 1
 
             if verbose && floor(M/m) == M/m @printf("\nCurrent alpha = %f", alpha) end
@@ -383,9 +386,9 @@ function dpmixture_gibbs(init::GibbsInit)
     if verbose @printf("\nSampler run complete.\n") end
     
     ## collect output
-    M_out = M + batch_m
+    ##M_out = M + batch_m
 
-    out = OutTuple(out_M=M_out, out_data=data_out, out_dp=dp_out, out_theta=theta_out)
+    out = OutTuple(out_M=M, out_data=data_out, out_dp=dp_out, out_theta=theta_out)
     
     data_state = StateData(dstar=dstar, ymiss=ymiss, y1=y1, y0=y0, yuse=yuse)
     dp_state = StateDP(J=J, alpha=alpha, label=label, eta=eta)
@@ -397,7 +400,8 @@ function dpmixture_gibbs(init::GibbsInit)
                                  state_theta=theta_state,
                                  chain=chain_state,
                                  batch_n=batch_n,
-                                 batch_m=M_out)
+                                 batch_m=batch_m+M,
+                                 batch_1=batch_m+1)
     
     gibbs_out = GibbsOut(out, init)
     
