@@ -123,27 +123,34 @@ function rescale_output(out::GibbsOut)
     const kz = out.gibbs_init.constant_init.dim.kz
     const ktot = 2kx + kz
 
+    const init = out.gibbs_init
+    const out_data = out.out_tuple.out_data
+    const out_dp = out.out_tuple.out_dp    
+    out_theta = out.out_tuple.out_theta
+    
     ## scale by sy
-    sy = fill(ys.s[1]^2, 3, 3)
-    sy[1,1] = 1.0
+    sy = ys.s[1]
+    sy = diagm([1.0, sy, sy])
     
     for m in 1:M
         J = out.out_tuple.out_dp.J_out[m]
-        betas = out.out_tuple.out_theta.betas_out[m]
+        betas = out_theta.betas_out[m]
+        Sigma = out_theta.Sigma_out[m]
         for j in 1:J
             ## rescale each coefficient
             bD = rescale_beta(betas[1:kz,j], zs, ys)
             b1 = rescale_beta(betas[kz+1:kz+kx,j], xs, ys)
             b0 = rescale_beta(betas[kz+kx+1:ktot,j], xs, ys)  
             betas[:,j] = vcat(bD, b1, b0)
+            Sigma[:,:,j] = sy*Sigma[:,:,j]*sy
         end
-        out.out_tuple.out_theta.betas_out[m] = betas
-        ##out.out_tuple.out_theta.Sigma_out[m] *= sy^2
-        ##scale!(out.out_tuple.out_theta.Sigma_out[m], sy^2)
-        out.out_tuple.out_theta.Sigma_out[m] .*= sy
+        out_theta.betas_out[m] = betas
+        out_theta.Sigma_out[m] = Sigma
     end
     
-    return out
+    ##return out
+    return GibbsOut(out_tuple = OutTuple(out_M=M, out_data=out_data, out_dp=out_dp, out_theta=out_theta),
+                    gibbs_init = init)
     
 end
 
