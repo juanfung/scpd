@@ -86,7 +86,7 @@ function dpmixture_gibbs(init::GibbsInit)
     eta = dp_state.eta
     
     zdenom = alpha + n - 1
-    w_hat = zeros(J)
+    w_hat = Array(Float64, 0) ##zeros(J)
     w_new = 0.0
     
     ## count component membership
@@ -107,7 +107,7 @@ function dpmixture_gibbs(init::GibbsInit)
     @inbounds for m in 1:M
 
         ## 1. update labels
-        if verbose && floor(M/m) == M/m @printf("\nIteration: %d\nUpdating labels...", m+batch_m) end
+        if verbose && mod(m, div(M, 10)) == 0 @printf("\nIteration: %d\nUpdating labels...", m+batch_m) end
         
         ## sample component label for each i
         for i in 1:n
@@ -120,7 +120,7 @@ function dpmixture_gibbs(init::GibbsInit)
                 Sigma = Sigma[:,:,vcat(1:ji-1, ji+1:J)]
                 SigmaInv = SigmaInv[:,:,vcat(1:ji-1, ji+1:J)]                
                 betas = betas[:,vcat(1:ji-1, ji+1:J)]
-                njs = deleteat!(njs, ji)
+                deleteat!(njs, ji)
                 ## shift labels
                 label[label .> ji] = label[label .> ji] - 1
                 J = J - 1
@@ -129,10 +129,11 @@ function dpmixture_gibbs(init::GibbsInit)
             Hi = Hmat[vcat(i, i+n, i+2*n), :] # 3 x ktot
             
             ## prob of sampling existing component
-            resize!(w_hat, J)
+            ##resize!(w_hat, J)
             ##w_hat = map(j-> logpdf(MvNormal(Hi*betas[:,j], Sigma[:,:,j]), yuse[:,i]), 1:J)
             for j in 1:J
-                w_hat[j] = logpdf(MvNormal(Hi*betas[:,j], Sigma[:,:,j]), yuse[:,i])
+                ##w_hat[j] = logpdf(MvNormal(Hi*betas[:,j], Sigma[:,:,j]), yuse[:,i])
+                push!(w_hat, logpdf(MvNormal(Hi*betas[:,j], Sigma[:,:,j]), yuse[:,i]))
             end
             ## normalize
             w_hat = (njs/zdenom).*exp(w_hat)
@@ -156,7 +157,8 @@ function dpmixture_gibbs(init::GibbsInit)
             w_new = (alpha/zdenom)*exp(w_new)
             
             push!(w_hat, w_new)
-            w_hat = w_hat/sum(w_hat)
+            ##w_hat = w_hat/sum(w_hat)
+            scale!(w_hat, 1/sum(w_hat))
             
             ji = rand( Categorical(w_hat) )
             label[i] = ji
@@ -174,12 +176,15 @@ function dpmixture_gibbs(init::GibbsInit)
             
             ## update counts
             njs[ji] = njs[ji] + 1
+
+            ## re-set w_hat
+            resize!(w_hat, 0)
             
         end
         ##@bp size(Sigma, 3) > J
         ##@bp size(SigmaInv, 3) > J
         
-        if verbose && floor(M/m) == M/m @printf("\nCurrent J = %d", J) end
+        if verbose && mod(m, div(M, 10)) == 0 @printf("\nCurrent J = %d", J) end
         
         ## update counts
         ##njs = StatsBase.counts(label, 1:J)
@@ -201,7 +206,7 @@ function dpmixture_gibbs(init::GibbsInit)
         xbeta0 = xmat*beta0 # n x J
         
         ## 2. update latent data and component parameters
-        if verbose && floor(M/m) == M/m @printf("\nUpdating data and parameters...") end
+        if verbose && mod(m, div(M, 10)) == 0 @printf("\nUpdating data and parameters...") end
         
         for j in 1:J
             
@@ -342,7 +347,7 @@ function dpmixture_gibbs(init::GibbsInit)
         
         if alpha_a !=0
             
-            if verbose && floor(M/m) == M/m @printf("\nUpdating alpha...") end
+            if verbose && mod(m, div(M, 10)) == 0 @printf("\nUpdating alpha...") end
 
             ## sample auxiliary variable
             ##eta = rand( Beta(alpha+1, n) )
@@ -356,12 +361,12 @@ function dpmixture_gibbs(init::GibbsInit)
             alpha, eta = sample_alpha(alpha, J, n=n, shape=alpha_a, rate=alpha_b)
             zdenom = alpha + n - 1
 
-            if verbose && floor(M/m) == M/m @printf("\nCurrent alpha = %f", alpha) end
+            if verbose && mod(m, div(M, 10)) == 0 @printf("\nCurrent alpha = %f", alpha) end
             
         end
                 
         ## 4. save iteration m draws
-        if verbose && floor(M/m) == M/m @printf("\nDone!") end
+        if verbose && mod(m, div(M, 10)) == 0 @printf("\nDone!") end
 
         ## save augmented data
         data_out.dstar_out[:,m] = dstar
