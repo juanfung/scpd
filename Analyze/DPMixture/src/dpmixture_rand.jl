@@ -1,30 +1,30 @@
 ## Use posterior to sample new latent data at given x_new, z_new
 
 ## random draws from ppd, 1 per MCMC draw
-function dpmixture_rand(out::GibbsOut, x_new::Array{Float64,1}, z_new::Array{Float64,1})
+function dpmixture_rand(out::GibbsOut, z_new::Array{Float64,1}, x_id::UnitRange)
 
     ## INPUTS:
-    ## out::GibbsOut : Gibbs sampler output
-    ## x_new::Vector : predictors for new outcome equation
+    ## out::GibbsOut : Gibbs sampler output    
     ## z_new::Vector : predictors for new selection equation
+    ## x_id::UnitRange : indices for outcome equation predictors in z_new, ie, x_new = z_new[x_id]
     
     ## OUTPUT:
     ## ynew_out::Vector : M total samples from posterior, where M = total MCMC draws
     
-    const pdfi = Distributions.logpdf
-    const cdfi = Distributions.logcdf
+    pdfi = Distributions.logpdf
+    cdfi = Distributions.logcdf
     
     ## constants
-    const M = out.out_tuple.out_M
-    const N = out.gibbs_init.constant_init.dim.n
+    M = out.out_tuple.out_M
     
     ## prior parameters    
-    const rho = out.gibbs_init.constant_init.prior.prior_sigma.sigma_rho
-    const R = out.gibbs_init.constant_init.prior.prior_sigma.sigma_R
-    const beta_mu = out.gibbs_init.constant_init.prior.prior_beta.beta_mu
-    const beta_V = out.gibbs_init.constant_init.prior.prior_beta.beta_V
-
-    const hnew = blkdiag(sparse(z_new'), sparse(x_new'), sparse(x_new')) # 3 x ktot
+    rho = out.gibbs_init.constant_init.prior.prior_sigma.sigma_rho
+    R = out.gibbs_init.constant_init.prior.prior_sigma.sigma_R
+    beta_mu = out.gibbs_init.constant_init.prior.prior_beta.beta_mu
+    beta_V = out.gibbs_init.constant_init.prior.prior_beta.beta_V
+    
+    ## predictors
+    hnew = blkdiag(sparse(z_new'), sparse(z_new[x_id]'), sparse(z_new[x_id]')) # 3 x ktot
     
     ## pre-allocate storage
     ynew_out = Array(Float64, 0) #zeros(M)    
@@ -88,6 +88,3 @@ end
 function ppd_cdf(ateNew::Array{Float64}, ateStar::Float64)
     ## ateCDF = StatsBase.ecdf(ateNew)
 end
-
-
-## compute 

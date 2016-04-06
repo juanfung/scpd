@@ -114,7 +114,7 @@ end
 ## rescale MCMC output
 function rescale_output(out::GibbsOut)
     
-    const ys = out.gibbs_init.data_init.y    
+    const ys = out.gibbs_init.data_init.y
     const xs = out.gibbs_init.data_init.xmat
     const zs = out.gibbs_init.data_init.zmat
     
@@ -175,3 +175,81 @@ function sample_alpha(alpha::Float64, J::Int64; n::Int64=100, shape::Float64=1.0
 
 end
 
+
+## --------------------------------------------------------------------------- #
+## evaluate CDF at y, F(y) = Pr(Y<y), by integrating PPD
+function ppd_cdf(ppd::PPD; ate=true)
+    
+    ## inputs:
+    ## ppd::PPD : such that sums=true
+    ## y::Float64 : value at which CDF evaluated
+    ## ate::Bool : if true, CDF for ATE, else CDF for TT
+    
+    ## output:
+    ## cdf::Function
+
+    if ate
+        a = ppd.ate
+    else
+        a = ppd.tt
+    end    
+    
+    function cdf(y::Float64)
+        
+        idx = find(xi -> xi < y, ppd.grid)        
+        lens = diff(ppd.grid[idx])
+        b = sub(a, idx)
+        b = [ mean(b[i:i+1]) for i in 1:(length(b)-1) ]
+        
+        return dot(lens, b)
+        
+    end
+    
+    return cdf
+    
+end
+
+
+## --------------------------------------------------------------------------- #
+## compute Monte Carlo variance for scalar MCMC draws:
+## 1. MC variance using autocorrelation function
+acf_var(a::Vector) = var(a)*( 1 + 2*sum(StatsBase.autocor(a)) )/length(a)
+
+acf_var2(a::Vector) = var(a)*( 1 + 2*sum(StatsBase.autocor(a, 0:(length(a)-1))) )/length(a)
+
+## 2. MC variance by batching
+function batch_var(a::Vector, k::Int64)
+
+    ## Inputs:
+    ## a::Vector : vector of scalar MCMC draws
+    ## k::Int64 : batch size
+    
+    ## Outputs:
+    ## vb::Float64 : batch variance
+    
+    M = length(a)
+    if mod(M, k) != 0
+        return println("Warning:\nk must be a multiple of M")
+    else
+        n = div(M, k)
+        a = reshape(a, k, n)
+        batches = mean(a, 1)
+        return var(batches)/n
+    end
+    
+end
+
+## --------------------------------------------------------------------------- #
+## not as efficient as hcat...
+function append_mat(a::Array{Float64,2}, b::Array{Float64,2})
+
+    dimsa = size(a)
+    dimsb = size(b)
+    
+    a = vec(a) # vector a
+    append!(a, vec(b)) # append b
+    a = reshape(a, dimsa[1], dimsa[2]+dimsb[2]) # reshape a
+    
+    return a
+    
+end
