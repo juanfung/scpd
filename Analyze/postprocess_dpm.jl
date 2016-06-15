@@ -1,6 +1,8 @@
 ## process MCMC output -> ppd draws
 
 ## nohup nice julia --precompiled=yes postprocess_dpm.jl "/home/juanfung/Documents/scpd/Analyze/Data/gaussian/" "./tmp/zvec2000champaign.dat" &> output.log & tail -f output.log
+## zvec2000urbana.dat
+## zvec2000other.dat
 
 ## --------------------------------------------------------------------------- # 
 
@@ -54,13 +56,9 @@ f = year * buyer * ".bin"
 
 ## save champaignhome
 yNewC = open( joinpath(mmap_path, "yNewC" * f), "a+")
-ateNewC = open( joinpath(mmap_path, "ateNewC"  * f), "a+")
-ttNewC = open( joinpath(mmap_path, "ttNewC"  * f), "a+")
 
 ## save urbanahome
 yNewU = open( joinpath(mmap_path, "yNewU"  * f), "a+")
-ateNewU = open( joinpath(mmap_path, "ateNewU"  * f), "a+")
-ttNewU = open( joinpath(mmap_path, "ttNewU"  * f), "a+")
 
 ## --------------------------------------------------------------------------- # 
 ## 3. generate PPD draws, compute TEs
@@ -74,7 +72,12 @@ end
 
 ## pre-allocate offset storage...
 M_star = Array(Int64, length(outs));
+offs = Array(Int64, length(outs), 2);
 if write_ppd
+    ateNewC = open( joinpath(mmap_path, "ateNewC"  * f), "a+")
+    ttNewC = open( joinpath(mmap_path, "ttNewC"  * f), "a+")
+    ateNewU = open( joinpath(mmap_path, "ateNewU"  * f), "a+")
+    ttNewU = open( joinpath(mmap_path, "ttNewU"  * f), "a+")
     M_treats = Array(Int64, length(outs), 4)
     offs = Array(Int64, length(outs), 6);
 end
@@ -97,11 +100,11 @@ for i in 1:size(outs,1)
     ###########################
     println("Sampling from posterior predictive: Champaign home...")
     @time ynew = CausalMixtures.rand_ppd(out, input, znew[:,1]);
+    offs[i, 1] = write(yNewC, ynew)
     if write_ppd
-        ## write ppd...
-        offs[i, 1] = write(yNewC, ynew)
+        ## write ppd...        
         println("Computing treatment effects...")
-        treats = CausalMixtures.dpm_ate(ynew, input);
+        @time treats = CausalMixtures.dpm_ate(ynew, input);
         ## write ate...
         println("mean ate = $(mean(treats.ate))")
         M_treats[i, 1] = length(treats.ate)
@@ -110,13 +113,15 @@ for i in 1:size(outs,1)
         println("mean tt = $(mean(treats.tt))")
         M_treats[i, 2] = length(treats.tt)
         offs[i, 3] = write(ttNewC, treats.tt)
-        ###########################
-        ### Sample for Urbana #####
-        ###########################
-        println("Sampling from posterior predictive: Urbana home...")
-        @time ynew = CausalMixtures.rand_ppd(out, input, znew[:,2]);
-        ## write ppd...
-        offs[i, 1] = write(yNewU, ynew)
+    end    
+    ###########################
+    ### Sample for Urbana #####
+    ###########################
+    println("Sampling from posterior predictive: Urbana home...")
+    @time ynew = CausalMixtures.rand_ppd(out, input, znew[:,2]);
+    offs[i, 2] = write(yNewU, ynew)
+    if write_ppd
+        ## write ppd...        
         println("Computing treatment effects...")
         treats = CausalMixtures.dpm_ate(ynew, input);
         ## write ate...
@@ -153,18 +158,18 @@ if write_ppd
     s = open( joinpath(mmap_path, "offs-" * f * ".dat"), "a+")
     write(s, offs)
     close(s)
+    ##
+    close(ateNewC)
+    close(ttNewC)
+    close(ateNewU)
+    close(ttNewU)
 end
 
 ## --------------------------------------------------------------------------- # 
 ## 4. close connections
 
 close(yNewC)
-close(ateNewC)
-close(ttNewC)
-
 close(yNewU)
-close(ateNewU)
-close(ttNewU)
 
 @printf("Iterations %s: Done!", f)
 

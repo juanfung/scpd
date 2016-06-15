@@ -1,4 +1,5 @@
 ## Fit (default: DP Mixture) hedonic selection model
+##nohup nice julia --precompiled=yes fit_dpm.jl "fmn" 5000 2 &> fmn.log &
 
 ## --------------------------------------------------------------------------- #
 
@@ -16,9 +17,13 @@ if length(ARGS) == 0
     ## set defaults:
     model = "dpm" # options: {dpm, blocked, fmn, gaussian}
     M = "2500"
+    J = "20"
 else
     model = ARGS[1]
     M = ARGS[2]
+    if length(ARGS) == 3
+        J = ARGS[3]
+    end
 end
 
 compress_out = true
@@ -68,10 +73,8 @@ ktot = read(dims, "ktot");
 
 if model == "gaussian"
     J = 1
-elseif model == "fmn"
-    J = 2
 else
-    J = 20
+    J = parse(Int, J)
 end
 
 alpha = 1.0
@@ -89,7 +92,6 @@ R = diagm([1/rho, r, r])
 ## --------------------------------------------------------------------------- #
 ## parameter settings
 
-##M = 2500
 M = parse(Int, M)
 
 ## --------------------------------------------------------------------------- #
