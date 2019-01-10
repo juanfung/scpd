@@ -45,7 +45,7 @@ end
 ## --------------------------------------------------------------------------- #
 ## seed random number generator
 
-srand(12981)
+Random.seed!(12981)
 
 ## --------------------------------------------------------------------------- #
 ## init JIT
@@ -82,10 +82,10 @@ alpha_shape = 0.0
 alpha_rate = 0.0
 
 beta_mu = zeros(ktot);
-beta_nu = 10
+beta_nu = 100
 beta_V = beta_nu*eye(ktot);
 
-rho = 10
+rho = 5
 r = 1
 R = diagm([1/rho, r, r])
 
