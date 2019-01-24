@@ -8,7 +8,7 @@
 ##include("./CausalMixtures/src/CausalMixtures.jl")
 push!(LOAD_PATH, ".")
 using CausalMixtures
-using LinearAlgebra, Statistics, Printf, Gadfly 
+using DelimitedFiles, LinearAlgebra, Statistics, Printf, Gadfly 
 
 ## load test data
 include("causal-hedonic.jl")
