@@ -134,7 +134,7 @@ end;
 ##znew = writecsv("./tmp/test/zvec2016test.dat", znew);
 # load znew
 println("Loading znew...")
-znew = readcsv("./tmp/test/zvec2016test.dat");
+znew = readdlm("./tmp/test/zvec2016test.dat", ',', Float64);
 
 (state, input, output) = out;
 
