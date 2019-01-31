@@ -93,7 +93,7 @@ data_raw = CausalMixtures.RawData(formula_y, formula_d, df)
 @printf("Step 3: Continue run...\n")
 out[2].params.M = M
 out[2].params.verbose = false
-@time out = CausalMixtures.dpm!(out...);
+@time out = CausalMixtures.dpm!(out...)
 ##@time (jit_state, jit_input, out) = dpm_init(data_raw, prior_dpm, param_dpm)
 ##state.state_dp.njs = StatsBase.countmap(collect(values(state.state_dp.labels))
 
