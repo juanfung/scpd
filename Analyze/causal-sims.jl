@@ -130,14 +130,19 @@ end;
 ## --------------------------------------------------------------------------- #
 
 ## generate znew:
-##znew = vcat(mean(input.data.Hmat[1:1000,1:3], 1), median(full(input.data.Hmat[1:1000,1:3]), 1))'
-##znew = writecsv("./tmp/test/zvec2016test.dat", znew);
-# load znew
 println("Loading znew...")
-znew = readdlm("./tmp/test/zvec2016test.dat", ',', Float64);
 
 (state, input, output) = out;
 
+znew = vcat(mean(input.data.Hmat[1:1000,1:3], dims=1),
+            median(Array(input.data.Hmat[1:1000,1:3]), dims=1))'
+
+writedlm("./tmp/test/zvec2016test.dat", znew)
+
+# load znew
+# znew = readdlm("./tmp/test/zvec2016test.dat", ',', Float64);
+
+## Get PPD draws and compute treatment effects
 @time ynew = CausalMixtures.rand_ppd(output, input, znew[:,1]);
 
 @time tes = CausalMixtures.dpm_ate(ynew, input);
