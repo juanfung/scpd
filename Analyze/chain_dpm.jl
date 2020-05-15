@@ -44,8 +44,8 @@ input.params.M = 1
 @time state, input, out = CausalMixtures.dpm!(state, input);
 
 input.params.M = M
-##@time state, input, out = CausalMixtures.dpm!(state, input, out); 
-@time state, input, out = CausalMixtures.dpm!(state, input); ## OOPS! - forgot to store first draw!
+@time state, input, out = CausalMixtures.dpm!(state, input, out); 
+##@time state, input, out = CausalMixtures.dpm!(state, input); ## OOPS! - forgot to store first draw!
 
 @printf("Saving state...\n")
 @time JLD.jldopen(path_to_data * "state.jld", "r+", compress=compress_out) do file
